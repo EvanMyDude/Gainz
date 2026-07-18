@@ -87,6 +87,9 @@ header.top p{color:var(--text2);font-size:14px;}
 .supp{display:flex;gap:12px;flex-wrap:wrap;}
 .supp label{flex:1;min-width:130px;display:flex;align-items:center;justify-content:space-between;gap:10px;
   border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--soft);font-weight:600;font-size:14px;cursor:pointer;min-height:46px;}
+.supp label.disabled{opacity:.55;cursor:not-allowed;}
+.supp label.disabled .switch input,.supp label.disabled .slider{cursor:not-allowed;}
+.supp-note{width:100%;margin-top:-4px;}
 .btn{width:100%;min-height:52px;border:none;border-radius:12px;background:var(--blue);color:#fff;
   font:inherit;font-weight:700;font-size:16px;cursor:pointer;box-shadow:var(--shadow);transition:.12s;}
 .btn:hover{filter:brightness(1.05);}
@@ -115,6 +118,17 @@ header.top p{color:var(--text2);font-size:14px;}
   margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;}
 .splitnote strong{margin-right:auto;}
 .splitchip{display:inline-flex;align-items:center;gap:6px;color:var(--text2);white-space:nowrap;}
+.superset-summary{background:var(--greenSoft);border:1px solid var(--green);color:var(--green);border-radius:10px;
+  padding:10px 13px;margin-bottom:12px;font-size:13px;font-weight:700;}
+.superset-block{border:1px solid var(--blue);background:var(--blueSoft);border-radius:12px;padding:12px;margin-bottom:12px;}
+.superset-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;
+  color:var(--blue);font-size:12px;font-weight:700;}
+.superset-head span:last-child{color:var(--text2);font-weight:500;text-align:right;}
+.superset-block .ex{background:var(--canvas);margin-bottom:8px;}
+.superset-block .ex:last-child{margin-bottom:0;}
+.superset-code{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;margin-right:7px;
+  border-radius:6px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;vertical-align:1px;}
+@media(max-width:560px){.superset-head{display:block}.superset-head span{display:block}.superset-head span:last-child{margin-top:2px;text-align:left;}}
 .wsec{margin-bottom:18px;}
 .wsec-title{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px;text-transform:uppercase;
   letter-spacing:.04em;color:var(--text2);margin-bottom:10px;}
@@ -235,6 +249,8 @@ canvas{width:100%;max-width:100%;display:block;}
       <div class="supp">
         <label>Warm-up <span class="switch"><input type="checkbox" id="optWarm" checked><span class="slider"></span></span></label>
         <label>Cardio <span class="switch"><input type="checkbox" id="optCardio"><span class="slider"></span></span></label>
+        <label id="supersetLabel">Smart supersets <span class="switch"><input type="checkbox" id="optSuperset" aria-describedby="supersetHint"><span class="slider"></span></span></label>
+        <p class="hint supp-note" id="supersetHint">Pairs compatible exercises while keeping demanding lifts solo.</p>
       </div>
     </div>
 
@@ -326,6 +342,54 @@ const LIB = [
   {id:'kneeraise',name:'Hanging Knee Raise',group:'shoulders',sub:'core',t:'i',bw:true,reps:'12-15'},
   {id:'pallof',name:'Pallof Press',group:'shoulders',sub:'core',t:'i',w:10,reps:'10',unit:'ea'},
 ];
+// Pairing metadata stays separate from the exercise library so supersets can
+// evolve without changing generation, progression, or the stored history shape.
+const PAIR_META={
+  bench:{equipment:'barbell',pattern:'horizontal_press',fatigue:'high'},
+  inclinedb:{equipment:'dumbbell',pattern:'horizontal_press',fatigue:'moderate'},
+  flatdb:{equipment:'dumbbell',pattern:'horizontal_press',fatigue:'moderate'},
+  machinepress:{equipment:'machine',pattern:'horizontal_press',fatigue:'moderate'},
+  cablefly:{equipment:'cable',pattern:'fly',fatigue:'low'},
+  pecdeck:{equipment:'machine',pattern:'fly',fatigue:'low'},
+  pushup:{equipment:'bodyweight',pattern:'horizontal_press',fatigue:'moderate'},
+  ropepush:{equipment:'cable',pattern:'triceps',fatigue:'low'},
+  ohrope:{equipment:'cable',pattern:'triceps',fatigue:'low'},
+  kickback:{equipment:'dumbbell',pattern:'triceps',fatigue:'low'},
+  skull:{equipment:'barbell',pattern:'triceps',fatigue:'moderate'},
+  pullup:{equipment:'bodyweight',pattern:'vertical_pull',fatigue:'high'},
+  latpull:{equipment:'cable',pattern:'vertical_pull',fatigue:'moderate'},
+  csrow:{equipment:'machine',pattern:'horizontal_pull',fatigue:'moderate'},
+  cablerow:{equipment:'cable',pattern:'horizontal_pull',fatigue:'moderate'},
+  lawnmower:{equipment:'dumbbell',pattern:'horizontal_pull',fatigue:'moderate'},
+  deadlift:{equipment:'barbell',pattern:'hinge',fatigue:'high'},
+  straightarm:{equipment:'cable',pattern:'vertical_pull',fatigue:'low'},
+  ezcurl:{equipment:'barbell',pattern:'curl',fatigue:'low'},
+  inclinecurl:{equipment:'dumbbell',pattern:'curl',fatigue:'low'},
+  hammer:{equipment:'dumbbell',pattern:'curl',fatigue:'low'},
+  cablecurl:{equipment:'cable',pattern:'curl',fatigue:'low'},
+  squat:{equipment:'barbell',pattern:'squat',fatigue:'high'},
+  legpress:{equipment:'machine',pattern:'squat',fatigue:'high'},
+  rdl:{equipment:'barbell',pattern:'hinge',fatigue:'high'},
+  bulgarian:{equipment:'dumbbell',pattern:'unilateral_legs',fatigue:'high'},
+  lunge:{equipment:'dumbbell',pattern:'unilateral_legs',fatigue:'high'},
+  goblet:{equipment:'dumbbell',pattern:'squat',fatigue:'moderate'},
+  legext:{equipment:'machine',pattern:'knee_extension',fatigue:'low'},
+  legcurl:{equipment:'machine',pattern:'knee_flexion',fatigue:'low'},
+  calfraise:{equipment:'machine',pattern:'calves',fatigue:'low'},
+  lpcalf:{equipment:'machine',pattern:'calves',fatigue:'low'},
+  slcalf:{equipment:'dumbbell',pattern:'calves',fatigue:'low'},
+  ohp:{equipment:'barbell',pattern:'vertical_press',fatigue:'high'},
+  dbohp:{equipment:'dumbbell',pattern:'vertical_press',fatigue:'moderate'},
+  arnold:{equipment:'dumbbell',pattern:'vertical_press',fatigue:'moderate'},
+  lateral:{equipment:'dumbbell',pattern:'lateral_raise',fatigue:'low'},
+  cablelat:{equipment:'cable',pattern:'lateral_raise',fatigue:'low'},
+  facepull:{equipment:'cable',pattern:'rear_delt',fatigue:'low'},
+  reardelt:{equipment:'dumbbell',pattern:'rear_delt',fatigue:'low'},
+  plank:{equipment:'bodyweight',pattern:'anti_extension',fatigue:'low'},
+  deadbug:{equipment:'bodyweight',pattern:'anti_extension',fatigue:'low'},
+  kneeraise:{equipment:'bodyweight',pattern:'core_flexion',fatigue:'moderate'},
+  pallof:{equipment:'cable',pattern:'anti_rotation',fatigue:'low'},
+};
 const WARMUPS=[
   {name:'Band Pull-Apart',reps:'x20'},{name:'Scap Push-ups',reps:'x10'},
   {name:'Empty Bar Bench',reps:'x15'},{name:'Bodyweight Squats',reps:'x15'},
@@ -476,6 +540,81 @@ function balanceAllocation(announce=true){
   if(announce)toast('Balanced to 100%: '+active.map(g=>g.name+' '+ST.groups[g.id].pct+'%').join(' · '));
   return true;
 }
+function pairKey(a,b){return [a,b].sort().join('|');}
+function supersetLimit(dur=ST.dur){return dur==='15'?2:dur==='30'?2:3;}
+function supersetScore(a,b){
+  if(!a||!b||a.sets!==b.sets)return -1;
+  const am=a.pairMeta||{},bm=b.pairMeta||{};
+  if(am.fatigue==='high'||bm.fatigue==='high')return -1;
+
+  const groups=pairKey(a.group,b.group);
+  const patterns=pairKey(am.pattern,bm.pattern);
+  const opposedLegs=patterns==='knee_extension|knee_flexion';
+  if(a.group===b.group&&!opposedLegs)return -1;
+
+  // Protect bracing and avoid pairing movements whose prime movers overlap.
+  const coreItem=a.group==='core'?a:b.group==='core'?b:null;
+  const corePartner=coreItem===a?b:coreItem===b?a:null;
+  if(corePartner&&(corePartner.group==='legs'||corePartner.group==='shoulders'||corePartner.t==='c'))return -1;
+  if(['chest|tris','back|bis','shoulders|tris','chest|shoulders'].includes(groups))return -1;
+
+  let score=0;
+  if(groups==='back|chest')score=60;
+  else if(groups==='bis|tris')score=65;
+  else if(['bis|chest','back|tris','bis|shoulders'].includes(groups))score=38;
+  else if(opposedLegs)score=52;
+  else if((a.group==='calves'||b.group==='calves')&&a.group!=='legs'&&b.group!=='legs')score=30;
+  else if(corePartner&&['chest','back'].includes(corePartner.group)&&corePartner.t==='i')score=24;
+  else if(['bis|legs','legs|tris'].includes(groups)&&a.t==='i'&&b.t==='i'&&am.fatigue==='low'&&bm.fatigue==='low')score=22;
+  if(!score)return -1;
+
+  if(patterns==='horizontal_press|horizontal_pull')score+=12;
+  if(patterns==='vertical_press|vertical_pull')score+=10;
+  if(patterns==='curl|triceps')score+=10;
+  if(opposedLegs)score+=10;
+  if(a.t==='i'&&b.t==='i')score+=8;
+  if(am.equipment===bm.equipment){
+    score+=am.equipment==='dumbbell'?10:am.equipment==='bodyweight'?7:am.equipment==='machine'?2:5;
+  }else if(am.equipment==='bodyweight'||bm.equipment==='bodyweight')score+=4;
+  return score;
+}
+function chooseSupersetPairs(items,limit=supersetLimit()){
+  const candidates=[];
+  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+    const score=supersetScore(items[i],items[j]);
+    if(score>0)candidates.push({a:i,b:j,score});
+  }
+  candidates.sort((x,y)=>y.score-x.score||x.a-y.a||x.b-y.b);
+  const used=new Set(),pairs=[];
+  for(const pair of candidates){
+    if(pairs.length>=limit)break;
+    if(used.has(pair.a)||used.has(pair.b))continue;
+    used.add(pair.a);used.add(pair.b);pairs.push(pair);
+  }
+  return pairs;
+}
+function organizeSupersets(items,dur=ST.dur){
+  const pairs=chooseSupersetPairs(items,supersetLimit(dur));
+  if(!pairs.length)return {items,pairs:[]};
+  const paired=new Set(pairs.flatMap(pair=>[pair.a,pair.b]));
+  const units=pairs.map(pair=>({kind:'pair',first:Math.min(pair.a,pair.b),pair}));
+  items.forEach((item,index)=>{if(!paired.has(index))units.push({kind:'solo',first:index,index,item});});
+  units.sort((a,b)=>{
+    const ap=a.kind==='solo'&&a.item.t==='c'?0:a.kind==='pair'?1:2;
+    const bp=b.kind==='solo'&&b.item.t==='c'?0:b.kind==='pair'?1:2;
+    return ap-bp||a.first-b.first;
+  });
+  const arranged=[],summary=[];
+  units.forEach(unit=>{
+    if(unit.kind==='solo'){arranged.push(unit.item);return;}
+    const label=String.fromCharCode(65+summary.length);
+    const first=items[unit.pair.a],second=items[unit.pair.b];
+    arranged.push({...first,supersetId:label,supersetOrder:1});
+    arranged.push({...second,supersetId:label,supersetOrder:2});
+    summary.push({id:label,first:first.name,second:second.name,score:unit.pair.score});
+  });
+  return {items:arranged,pairs:summary};
+}
 function allocateGroupCounts(on,total,pctTotal){
   const alloc=on.map(g=>({
     g,n:1,capacity:groupPool(g.id).length,
@@ -508,6 +647,7 @@ function generate(){
   }
   let pctTotal=on.reduce((a,g)=>a+ST.groups[g.id].pct,0);
   if(pctTotal>100){toast('Muscle percentages cannot exceed 100%');return;}
+  const balancedBeforeGenerate=pctTotal<100;
   if(pctTotal<100){balanceAllocation(true);pctTotal=100;}
   const totalMap={'15':4,'30':6,'60':9};
   let total=totalMap[ST.dur];
@@ -539,21 +679,51 @@ function generate(){
     const c=pick(CARDIO,1)[0];
     sections.push({title:'Cardio',icon:'\uD83C\uDFC3',items:[{name:c.name,reps:c.reps,warm:true}]});
   }
+  const wantsSupersets=document.getElementById('optSuperset').checked&&ST.feel!=='bad';
+  const organized=wantsSupersets?organizeSupersets(mainItems,ST.dur):{items:mainItems,pairs:[]};
+  const mainSection=sections.find(sec=>sec.title==='Main work');
+  mainSection.items=organized.items;
   // form note: pick one from main items that has a note
-  const noteItem=mainItems.filter(it=>it.note);
+  const noteItem=organized.items.filter(it=>it.note);
   const formNote=noteItem.length?pick(noteItem,1)[0]:null;
   currentWorkout={date:new Date().toISOString(),dur:ST.dur,feel:ST.feel,sections,
     split:alloc.map(a=>({id:a.g.id,name:a.g.name,pct:ST.groups[a.g.id].pct,count:a.n})),
-    formNote:formNote?{name:formNote.name,text:formNote.note}:null};
+    formNote:formNote?{name:formNote.name,text:formNote.note}:null,
+    supersets:organized.pairs};
   renderOutput();
+  if(wantsSupersets){
+    const prefix=balancedBeforeGenerate?'Balanced to 100% · ':'';
+    if(organized.pairs.length)toast(prefix+`Smart supersets ready — ${organized.pairs.length} pair${organized.pairs.length===1?'':'s'}`);
+    else toast(prefix+'No compatible superset pair today — workout kept standard');
+  }
 }
 function buildItem(e){
   const sets=schemeFor(e);
   const w=e.bw?null:suggestWeight(e);
-  return {id:e.id,name:e.name,reps:e.reps,unit:e.unit||'lb',bw:!!e.bw,sets,w,note:e.note||null,t:e.t};
+  return {id:e.id,name:e.name,reps:e.reps,unit:e.unit||'lb',bw:!!e.bw,sets,w,note:e.note||null,t:e.t,
+    group:exerciseGroupId(e),pairMeta:PAIR_META[e.id]||{equipment:'other',pattern:'other',fatigue:e.t==='c'?'moderate':'low'}};
 }
 
 /* ---------- Render output ---------- */
+function exerciseHtml(it,sectionIndex,itemIndex,code=''){
+  if(it.warm){
+    return `<div class="ex"><div class="ex-head"><span class="ex-name">${it.name}</span><span class="ex-scheme">${it.reps}</span></div></div>`;
+  }
+  const unit=it.unit==='ea'?'lb ea':it.unit;
+  let html=`<div class="ex"><div class="ex-head"><span class="ex-name">`+
+    `${code?`<span class="superset-code">${code}</span>`:''}${it.name}</span>`+
+    `<span class="ex-scheme">${it.sets} \u00D7 ${it.reps}</span></div>`;
+  if(it.note)html+=`<div class="ex-note">${it.note}</div>`;
+  html+=`<div class="sets">`;
+  for(let s=0;s<it.sets;s++){
+    if(it.bw){
+      html+=`<div class="setpill"><span class="u">set ${s+1}</span></div>`;
+    }else{
+      html+=`<div class="setpill"><input type="number" aria-label="${it.name} set ${s+1} weight" data-si="${sectionIndex}" data-ii="${itemIndex}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
+    }
+  }
+  return html+`</div></div>`;
+}
 function renderOutput(){
   const out=document.getElementById('output');
   out.classList.remove('hide');
@@ -563,30 +733,26 @@ function renderOutput(){
     html+=`<div class="splitnote"><strong>Generated split</strong>`+
       w.split.map(s=>`<span class="splitchip"><span class="dot" style="background:${GC[s.id]}"></span>${s.name} ${s.pct}% \u2192 ${s.count} lift${s.count===1?'':'s'}</span>`).join('')+`</div>`;
   }
+  if(w.supersets&&w.supersets.length){
+    html+=`<div class="superset-summary">\u26A1 Smart supersets built: ${w.supersets.length} compatible pair${w.supersets.length===1?'':'s'}</div>`;
+  }
   if(w.formNote){
     html+=`<div class="formnote"><span class="ic">\uD83D\uDCA1</span><div><b>Form focus \u2014 ${w.formNote.name}:</b> ${w.formNote.text}</div></div>`;
   }
   w.sections.forEach((sec,si)=>{
     html+=`<div class="wsec"><div class="wsec-title">${sec.icon} ${sec.title}</div>`;
-    sec.items.forEach((it,ii)=>{
-      if(it.warm){
-        html+=`<div class="ex"><div class="ex-head"><span class="ex-name">${it.name}</span><span class="ex-scheme">${it.reps}</span></div></div>`;
+    for(let ii=0;ii<sec.items.length;ii++){
+      const it=sec.items[ii];
+      const mate=sec.items[ii+1];
+      if(sec.title==='Main work'&&it.supersetOrder===1&&mate&&mate.supersetId===it.supersetId&&mate.supersetOrder===2){
+        html+=`<div class="superset-block" role="group" aria-label="Superset ${it.supersetId}">`+
+          `<div class="superset-head"><span>Superset ${it.supersetId}</span><span>Alternate exercises \u00B7 Rest 60\u201390 sec after ${it.supersetId}2</span></div>`+
+          exerciseHtml(it,si,ii,it.supersetId+'1')+exerciseHtml(mate,si,ii+1,it.supersetId+'2')+`</div>`;
+        ii++;
       }else{
-        const unit=it.unit==='ea'?'lb ea':it.unit;
-        html+=`<div class="ex"><div class="ex-head"><span class="ex-name">${it.name}</span>`+
-          `<span class="ex-scheme">${it.sets} \u00D7 ${it.reps}</span></div>`;
-        if(it.note) html+=`<div class="ex-note">${it.note}</div>`;
-        html+=`<div class="sets">`;
-        for(let s=0;s<it.sets;s++){
-          if(it.bw){
-            html+=`<div class="setpill"><span class="u">set ${s+1}</span></div>`;
-          }else{
-            html+=`<div class="setpill"><input type="number" data-si="${si}" data-ii="${ii}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
-          }
-        }
-        html+=`</div></div>`;
+        html+=exerciseHtml(it,si,ii);
       }
-    });
+    }
     html+=`</div>`;
   });
   html+=`<div class="btn-row">`+
@@ -608,6 +774,14 @@ function renderOutput(){
 }
 
 /* ---------- Apple Notes text ---------- */
+function pushNotesLift(lines,it,code=''){
+  const unit=it.unit==='ea'?' ea':it.unit&&it.unit!=='lb'?' '+it.unit:'';
+  lines.push(`${code?code+' ':''}${it.name} | ${it.sets} x ${it.reps}`);
+  for(let s=0;s<it.sets;s++){
+    if(it.bw)lines.push('Bodyweight x ');
+    else lines.push(`${it.w}${unit} x `);
+  }
+}
 function notesText(){
   const w=currentWorkout;
   const d=new Date(w.date);
@@ -619,18 +793,22 @@ function notesText(){
   w.sections.forEach(sec=>{
     if(lines[lines.length-1]!=='')lines.push('');
     lines.push(sec.title.toUpperCase());
-    sec.items.forEach(it=>{
+    for(let index=0;index<sec.items.length;index++){
+      const it=sec.items[index];
       if(it.warm){ lines.push(`- ${it.name} ${it.reps}`); }
+      else if(it.supersetOrder===1&&sec.items[index+1]&&sec.items[index+1].supersetId===it.supersetId){
+        const mate=sec.items[index+1];
+        lines.push(`SUPERSET ${it.supersetId} \u2014 ${it.sets} rounds`);
+        pushNotesLift(lines,it,it.supersetId+'1');
+        pushNotesLift(lines,mate,it.supersetId+'2');
+        lines.push(`Rest 60\u201390 sec after ${it.supersetId}2`,'');
+        index++;
+      }
       else{
-        const unit=it.unit==='ea'?' ea':it.unit&&it.unit!=='lb'?' '+it.unit:'';
-        lines.push(`${it.name} | ${it.sets} x ${it.reps}`);
-        for(let s=0;s<it.sets;s++){
-          if(it.bw) lines.push('Bodyweight x ');
-          else lines.push(`${it.w}${unit} x `);
-        }
+        pushNotesLift(lines,it);
         lines.push('');
       }
-    });
+    }
   });
   return lines.join('\n');
 }
@@ -972,6 +1150,22 @@ function updatePcts(){
   if(hint)hint.classList.toggle('over',overLimit);
   if(summary)summary.classList.toggle('over',sum>100||overLimit);
 }
+function syncSupersetAvailability(announce=false){
+  const input=document.getElementById('optSuperset');
+  const label=document.getElementById('supersetLabel');
+  const hint=document.getElementById('supersetHint');
+  const deload=ST.feel==='bad';
+  if(deload&&input.checked){
+    input.checked=false;
+    invalidateWorkout();
+    if(announce)toast('Smart supersets paused for a deload workout');
+  }
+  input.disabled=deload;
+  label.classList.toggle('disabled',deload);
+  if(deload)hint.textContent='Paused on deload days so form and recovery stay the priority.';
+  else if(input.checked)hint.textContent='On — compatible exercises will be paired; demanding or overlapping matches stay solo.';
+  else hint.textContent='Pairs compatible exercises while keeping demanding lifts solo.';
+}
 
 /* ---------- Tabs & segments ---------- */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
@@ -987,6 +1181,7 @@ function wireSeg(id,key){
     seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');ST[key]=b.dataset.v;
     invalidateWorkout();
     if(key==='dur')updatePcts();
+    if(key==='feel')syncSupersetAvailability(true);
     savePrefs();  // writes dur only; feel is not persisted
   });
 }
@@ -1001,6 +1196,7 @@ document.getElementById('randBtn').onclick=randomizeAllocation;
 document.getElementById('balanceBtn').onclick=()=>balanceAllocation(true);
 document.getElementById('pdfBtn').onclick=exportPdf;
 ['optWarm','optCardio'].forEach(id=>document.getElementById(id).addEventListener('change',invalidateWorkout));
+document.getElementById('optSuperset').addEventListener('change',()=>{invalidateWorkout();syncSupersetAvailability();});
 
 /* ---------- Toast ---------- */
 let toastT;
@@ -1008,6 +1204,7 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 
 /* ---------- Init ---------- */
 buildGroups();
+syncSupersetAvailability();
 window.addEventListener('resize',()=>{const sel=document.getElementById('trendSel');if(!document.getElementById('tab-hist').classList.contains('hide'))drawTrend(sel.disabled?null:sel.value);});
 </script>
 </body>
