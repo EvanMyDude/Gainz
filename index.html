@@ -202,7 +202,7 @@ canvas{width:100%;max-width:100%;display:block;}
     <div class="badge">🤠</div>
     <div>
       <h1>GAiNz</h1>
-      <p>Workout generator, pulled from your logs</p>
+      <p>Workout generator</p>
     </div>
   </header>
 
@@ -1066,35 +1066,53 @@ function buildGroups(){
 // targeted muscles equally eligible for a surprise split.
 function groupWeights(){ return GROUPS.map(()=>1); }
 // Weighted sample without replacement. Returns GROUPS indices.
-function sampleGroups(k,weights){
+function sampleGroups(k,weights,rng=Math.random){
   const pool=GROUPS.map((g,i)=>i), out=[];
   while(out.length<k && pool.length){
     const tot=pool.reduce((a,i)=>a+weights[i],0);
-    let r=Math.random()*tot, j=0;
+    let r=rng()*tot, j=0;
     while(j<pool.length-1 && (r-=weights[pool[j]])>0) j++;
     out.push(pool.splice(j,1)[0]);
   }
   return out;
 }
-// Splits 100 across n groups in steps of 5 with a 20% floor, so no group lands
-// so low it would only earn one lift anyway. FLOOR*3 <= 100 bounds k at 3.
-function splitPct(weights){
-  const FLOOR=20, STEP=5, n=weights.length;
+// Every supported group count is possible, while practical 2–4 group sessions
+// remain the most common outcome for each duration.
+const RANDOM_COUNT_WEIGHTS={
+  4:[2,5,4,1],
+  6:[2,5,5,4,2,1],
+  8:[1,4,5,5,4,2,1,1],
+};
+function randomGroupCount(max,rng=Math.random){
+  const weights=RANDOM_COUNT_WEIGHTS[max]||Array(max).fill(1);
+  const total=weights.reduce((sum,weight)=>sum+weight,0);
+  let roll=rng()*total,index=0;
+  while(index<weights.length-1&&(roll-=weights[index])>=0)index++;
+  return index+1;
+}
+// Split 100 in 5% steps. Larger group counts use a smaller floor and a soft
+// ceiling so all selected muscles matter without one group dominating the roll.
+function splitPct(weights,rng=Math.random){
+  const STEP=5,n=weights.length;
   if(n===1) return [100];
+  const FLOOR=n<=3?20:n<=5?10:5;
+  const CEILING=n<=3?60:n<=5?40:n===6?30:25;
   const pct=weights.map(()=>FLOOR);
-  const tot=weights.reduce((a,b)=>a+b,0)||n;
   let chunks=(100-FLOOR*n)/STEP;
   while(chunks-->0){
-    let r=Math.random()*tot, i=0;
-    while(i<n-1 && (r-=weights[i])>0) i++;
-    pct[i]+=STEP;
+    const eligible=weights.map((weight,index)=>({weight,index})).filter(x=>pct[x.index]<CEILING);
+    const total=eligible.reduce((sum,x)=>sum+x.weight,0)||eligible.length;
+    let r=rng()*total,i=0;
+    while(i<eligible.length-1&&(r-=eligible[i].weight)>0)i++;
+    const index=eligible[i].index;
+    pct[index]+=STEP;
   }
   return pct;
 }
-function rollAllocation(weights){
-  const k=[1,2,2,2,3,3][Math.floor(Math.random()*6)];  // two groups is a normal day
-  const idx=sampleGroups(k,weights);
-  const pcts=splitPct(idx.map(i=>weights[i]));
+function rollAllocation(weights,rng=Math.random){
+  const k=randomGroupCount(maxGroupsForDuration(),rng);
+  const idx=sampleGroups(k,weights,rng);
+  const pcts=splitPct(idx.map(i=>weights[i]),rng);
   GROUPS.forEach(g=>{ST.groups[g.id].on=false;ST.groups[g.id].pct=0;});
   idx.forEach((i,n)=>{const s=ST.groups[GROUPS[i].id];s.on=true;s.pct=pcts[n];});
 }
