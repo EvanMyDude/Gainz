@@ -10,6 +10,7 @@
   --border:#E6E5E3; --blue:#2783DE; --blueSoft:#E5F2FC; --green:#46A171; --greenSoft:#E8F1EC;
   --orange:#D5803B; --orangeSoft:#FBEBDE; --red:#E56458; --redSoft:#FCE9E7;
   --chest:#5E9FE8; --back:#72BC8F; --legs:#DE9255; --shoulders:#BF8EDA;
+  --triceps:#477FC3; --biceps:#4F9F75; --calves:#C97A42; --core:#9568AF;
   --shadow:0 1px 2px rgba(0,0,0,.05), 0 4px 12px rgba(0,0,0,.04);
   --radius:12px;
 }
@@ -18,6 +19,7 @@
     --text:#FFFFFF; --text2:rgba(255,255,255,.65); --canvas:#191919; --soft:#202020; --surface2:#383836;
     --border:rgba(255,255,255,.20); --blue:#5E9FE8; --blueSoft:rgba(94,159,232,.12); --green:#72BC8F; --greenSoft:rgba(114,188,143,.12);
     --orange:#DE9255; --orangeSoft:rgba(222,146,85,.12); --red:#E97366; --redSoft:rgba(233,115,102,.12);
+    --triceps:#75A6DF; --biceps:#72BC8F; --calves:#E5A36F; --core:#C39ADB;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 12px rgba(0,0,0,.25);
   }
 }
@@ -28,6 +30,7 @@
   --text:#2C2C2B; --text2:#6B6862; --canvas:#FFFFFF; --soft:#FFFFFF; --surface2:#EDECEA;
   --border:#D8D6D3; --blue:#1F6FC4; --blueSoft:#E5F2FC; --green:#3D8C62; --greenSoft:#E8F1EC;
   --orange:#B96C2E; --orangeSoft:#FBEBDE; --red:#C94E42; --redSoft:#FCE9E7;
+  --triceps:#477FC3; --biceps:#4F9F75; --calves:#C97A42; --core:#9568AF;
   --shadow:none;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -59,6 +62,11 @@ header.top p{color:var(--text2);font-size:14px;}
 .seg.feel button.on[data-v="good"]{border-color:var(--green);background:var(--greenSoft);color:var(--green);}
 .groups{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:560px){.groups{grid-template-columns:1fr;}}
+.group-section+.group-section{border-top:1px solid var(--border);margin-top:18px;padding-top:18px;}
+.group-section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.group-section-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text);}
+.group-section-note{font-size:12px;color:var(--text2);text-align:right;}
+@media(max-width:560px){.group-section-head{display:block}.group-section-note{margin-top:2px;text-align:left;}}
 .grp{border:1px solid var(--border);border-radius:10px;padding:14px;transition:.12s;background:var(--soft);}
 .grp.on{background:var(--canvas);}
 .grp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
@@ -87,11 +95,16 @@ header.top p{color:var(--text2);font-size:14px;}
 .btn-row{display:flex;gap:10px;margin-top:16px;}
 .btn-row .btn{min-height:46px;font-size:14px;}
 .hint{color:var(--text2);font-size:13px;margin-top:8px;}
+.hint.over{color:var(--red);font-weight:600;}
 .alloc-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;
-  padding-top:12px;border-top:1px solid var(--border);font-size:13px;}
+  padding-top:12px;border-top:1px solid var(--border);font-size:13px;flex-wrap:wrap;}
+.alloc-copy{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:220px;}
 .alloc-summary strong{color:var(--text);}
 .alloc-summary span{color:var(--text2);font-variant-numeric:tabular-nums;}
 .alloc-summary.over strong,.alloc-summary.over span{color:var(--red);}
+.balance-btn{border:1px solid var(--blue);border-radius:8px;background:var(--blueSoft);color:var(--blue);
+  min-height:34px;padding:5px 11px;font:inherit;font-size:12px;font-weight:750;cursor:pointer;white-space:nowrap;}
+.balance-btn:hover{filter:brightness(1.04);}
 .formnote{background:var(--blueSoft);border:1px solid var(--blue);border-radius:10px;padding:14px 16px;
   display:flex;gap:12px;align-items:flex-start;margin-bottom:18px;}
 .formnote .ic{font-size:20px;}
@@ -174,7 +187,7 @@ canvas{width:100%;max-width:100%;display:block;}
   <header class="top">
     <div class="badge">🤠</div>
     <div>
-      <h1>Gold Gym GAiNz</h1>
+      <h1>GAiNz</h1>
       <p>Workout generator, pulled from your logs</p>
     </div>
   </header>
@@ -207,11 +220,14 @@ canvas{width:100%;max-width:100%;display:block;}
     <div class="card">
       <div class="card-head">
         <h2>What gets worked?</h2>
-        <button class="btn ghost mini" id="randBtn">🎲 Randomize</button>
+        <button class="btn ghost mini" id="randBtn" type="button" aria-label="Randomize muscle-group split">🎲 Randomize</button>
       </div>
-      <div class="groups" id="groups"></div>
-      <div class="alloc-summary" id="allocSummary"><strong id="allocTotal">100% allocated</strong><span id="allocRemaining">0% remaining</span></div>
-      <p class="hint">Percentages are absolute and cannot exceed 100% total. Exercise counts follow the selected split as closely as session length allows.</p>
+      <div id="groups"></div>
+      <div class="alloc-summary" id="allocSummary">
+        <div class="alloc-copy"><strong id="allocTotal">100% allocated</strong><span id="allocRemaining">0% remaining</span></div>
+        <button class="balance-btn hide" id="balanceBtn" type="button">Balance to 100%</button>
+      </div>
+      <p class="hint" id="groupHint">Toggle any group on its own or blend it into a split. Each selected group gets at least one exercise. <span id="groupLimitHint"></span></p>
     </div>
 
     <div class="card">
@@ -254,7 +270,7 @@ canvas{width:100%;max-width:100%;display:block;}
 <script>
 "use strict";
 /* ---------- Exercise library (seeded from Evan's 2026 logs) ---------- */
-// group: chest|back|legs|shoulders ; sub: accessory group id or null
+// group: primary muscle group; sub: standalone targeted group id or null
 // t: 'c' compound | 'i' isolation ; bw: bodyweight ; unit weight unit
 const LIB = [
   // CHEST
@@ -319,13 +335,29 @@ const CARDIO=[
   {name:'StairMaster',reps:'27 floors'},{name:'Treadmill Intervals',reps:'6 min · 30s hard / 30s easy'},
   {name:'Reverse Walk',reps:'10 min'},{name:'Bike',reps:'2 miles'},{name:'Row Machine',reps:'2 min'},
 ];
-const GROUPS=[
-  {id:'chest',name:'Chest',color:'var(--chest)',acc:'tris',accName:'Add triceps?'},
-  {id:'back',name:'Back',color:'var(--back)',acc:'bis',accName:'Add biceps?'},
-  {id:'legs',name:'Legs',color:'var(--legs)',acc:'calves',accName:'Add calves?'},
-  {id:'shoulders',name:'Shoulders',color:'var(--shoulders)',acc:'core',accName:'Add core?'},
+const PRIMARY_GROUPS=[
+  {id:'chest',name:'Chest',color:'var(--chest)',kind:'primary'},
+  {id:'back',name:'Back',color:'var(--back)',kind:'primary'},
+  {id:'legs',name:'Legs',color:'var(--legs)',kind:'primary'},
+  {id:'shoulders',name:'Shoulders',color:'var(--shoulders)',kind:'primary'},
 ];
-const GC={chest:'#5E9FE8',back:'#72BC8F',legs:'#DE9255',shoulders:'#BF8EDA'};
+const TARGET_GROUPS=[
+  {id:'bis',name:'Biceps',color:'var(--biceps)',kind:'targeted'},
+  {id:'tris',name:'Triceps',color:'var(--triceps)',kind:'targeted'},
+  {id:'core',name:'Core',color:'var(--core)',kind:'targeted'},
+  {id:'calves',name:'Calves',color:'var(--calves)',kind:'targeted'},
+];
+const GROUPS=[...PRIMARY_GROUPS,...TARGET_GROUPS];
+const LEGACY_ACCESSORIES=[
+  {parent:'chest',target:'tris'},
+  {parent:'back',target:'bis'},
+  {parent:'legs',target:'calves'},
+  {parent:'shoulders',target:'core'},
+];
+const GC={
+  chest:'#5E9FE8',back:'#72BC8F',legs:'#DE9255',shoulders:'#BF8EDA',
+  tris:'#477FC3',bis:'#4F9F75',calves:'#C97A42',core:'#9568AF'
+};
 
 /* ---------- Storage ---------- */
 const KEY='gainz_v1';
@@ -339,10 +371,14 @@ if(!DB.seeded){ LIB.forEach(e=>{ if(!DB.last[e.id]) DB.last[e.id]={w:e.w||0,reps
 
 /* ---------- State ---------- */
 const DEFAULT_ST={dur:'15',feel:'ok',groups:{
-  chest:{on:true,pct:100,acc:false},
-  back:{on:false,pct:0,acc:false},
-  legs:{on:false,pct:0,acc:false},
-  shoulders:{on:false,pct:0,acc:false},
+  chest:{on:true,pct:100},
+  back:{on:false,pct:0},
+  legs:{on:false,pct:0},
+  shoulders:{on:false,pct:0},
+  bis:{on:false,pct:0},
+  tris:{on:false,pct:0},
+  core:{on:false,pct:0},
+  calves:{on:false,pct:0},
 }};
 function freshST(){return JSON.parse(JSON.stringify(DEFAULT_ST));}
 // feel is deliberately never persisted: it describes how you feel right now, and
@@ -351,19 +387,34 @@ function hydrateST(){
   const p=DB.prefs; if(!p) return freshST();
   const st=freshST();
   if(['15','30','60'].includes(p.dur)) st.dur=p.dur;
-  let sum=0;
   GROUPS.forEach(g=>{
     const s=p.groups&&p.groups[g.id]; if(!s) return;
     const pct=Math.min(100,Math.max(0,Math.round((+s.pct||0)/5)*5));
-    st.groups[g.id]={on:!!s.on,pct:s.on?pct:0,acc:!!s.acc};
-    if(s.on) sum+=pct;
+    st.groups[g.id]={on:!!s.on,pct:s.on?pct:0};
   });
+  // Migrate the old nested accessory switches into small standalone allocations.
+  // Keep the duration's group cap, and prefer the highest-percentage parent groups.
+  const hasTargetPrefs=TARGET_GROUPS.some(g=>p.groups&&Object.prototype.hasOwnProperty.call(p.groups,g.id));
+  if(!hasTargetPrefs){
+    const limit=st.dur==='15'?4:st.dur==='30'?6:8;
+    let active=GROUPS.filter(g=>st.groups[g.id].on).length;
+    LEGACY_ACCESSORIES.filter(x=>{
+      const old=p.groups&&p.groups[x.parent];
+      return old&&old.on&&old.acc&&st.groups[x.parent].pct>=10;
+    }).sort((a,b)=>st.groups[b.parent].pct-st.groups[a.parent].pct).forEach(x=>{
+      if(active>=limit)return;
+      st.groups[x.parent].pct-=5;
+      st.groups[x.target]={on:true,pct:5};
+      active++;
+    });
+  }
+  const sum=GROUPS.reduce((total,g)=>total+(st.groups[g.id].on?st.groups[g.id].pct:0),0);
   // Never hydrate into a state generate() would reject.
   return (sum===0||sum>100)?freshST():st;
 }
 function savePrefs(){
   const g={};
-  GROUPS.forEach(x=>{const s=ST.groups[x.id];g[x.id]={on:s.on,pct:s.pct,acc:s.acc};});
+  GROUPS.forEach(x=>{const s=ST.groups[x.id];g[x.id]={on:s.on,pct:s.pct};});
   DB.prefs={dur:ST.dur,groups:g};
   save(DB);
 }
@@ -394,33 +445,77 @@ function schemeFor(e){
   return base;
 }
 function pick(arr,n){const c=[...arr];const out=[];while(out.length<n && c.length){out.push(c.splice(Math.floor(Math.random()*c.length),1)[0]);}return out;}
+function exerciseGroupId(e){return e&&e.sub?e.sub:e&&e.group;}
+function groupPool(id){return LIB.filter(e=>exerciseGroupId(e)===id);}
+function maxGroupsForDuration(dur=ST.dur){return dur==='15'?4:dur==='30'?6:8;}
+function durationName(dur=ST.dur){return dur==='15'?'10–15 min':dur==='30'?'30 min':'1 hour';}
+// Preserve the relative split while converting it to exact 5% steps totaling
+// 100. Largest-remainder rounding keeps the result deterministic and fair.
+function normalizePercentages(values,step=5){
+  const total=values.reduce((sum,value)=>sum+Math.max(0,+value||0),0);
+  const units=Math.round(100/step);
+  if(!values.length||total<=0)return [];
+  const shares=values.map((value,index)=>{
+    const exact=Math.max(0,+value||0)/total*units;
+    return {index,whole:Math.floor(exact),remainder:exact-Math.floor(exact)};
+  });
+  let left=units-shares.reduce((sum,share)=>sum+share.whole,0);
+  [...shares].sort((a,b)=>b.remainder-a.remainder||a.index-b.index)
+    .slice(0,left).forEach(share=>share.whole++);
+  return shares.sort((a,b)=>a.index-b.index).map(share=>share.whole*step);
+}
+function balanceAllocation(announce=true){
+  const active=GROUPS.filter(g=>ST.groups[g.id].on&&ST.groups[g.id].pct>0);
+  const total=active.reduce((sum,g)=>sum+ST.groups[g.id].pct,0);
+  if(!active.length||total===100)return false;
+  const balanced=normalizePercentages(active.map(g=>ST.groups[g.id].pct));
+  active.forEach((g,index)=>{ST.groups[g.id].pct=balanced[index];});
+  invalidateWorkout();
+  savePrefs();
+  buildGroups();
+  if(announce)toast('Balanced to 100%: '+active.map(g=>g.name+' '+ST.groups[g.id].pct+'%').join(' · '));
+  return true;
+}
+function allocateGroupCounts(on,total,pctTotal){
+  const alloc=on.map(g=>({
+    g,n:1,capacity:groupPool(g.id).length,
+    quota:ST.groups[g.id].pct/pctTotal*total,
+    tie:Math.random()
+  }));
+  let used=alloc.reduce((sum,a)=>sum+a.n,0);
+  while(used<total){
+    const candidates=alloc.filter(a=>a.n<a.capacity);
+    if(!candidates.length)break;
+    candidates.sort((a,b)=>(b.quota-b.n)-(a.quota-a.n)||a.tie-b.tie);
+    candidates[0].n++;used++;
+  }
+  return alloc;
+}
+function invalidateWorkout(){
+  currentWorkout=null;
+  const out=document.getElementById('output');
+  out.classList.add('hide');out.innerHTML='';
+}
 
 /* ---------- Generate ---------- */
 function generate(){
   const on=GROUPS.filter(g=>ST.groups[g.id].on && ST.groups[g.id].pct>0);
   if(!on.length){toast('Pick at least one muscle group');return;}
-  const pctTotal=on.reduce((a,g)=>a+ST.groups[g.id].pct,0);
+  const groupLimit=maxGroupsForDuration();
+  if(on.length>groupLimit){
+    toast(`${durationName()} supports up to ${groupLimit} muscle groups`);
+    return;
+  }
+  let pctTotal=on.reduce((a,g)=>a+ST.groups[g.id].pct,0);
   if(pctTotal>100){toast('Muscle percentages cannot exceed 100%');return;}
+  if(pctTotal<100){balanceAllocation(true);pctTotal=100;}
   const totalMap={'15':4,'30':6,'60':9};
   let total=totalMap[ST.dur];
   if(ST.feel==='bad') total=Math.max(2,total-1);
-  // Accessories draw from the same budget as main lifts, so the lift count tracks the
-  // chosen duration. Every selected group keeps one main lift, which floors the session
-  // at on.length -- so when accessories don't also fit (4 groups + 4 accessories in
-  // 15 min needs 8 lifts for a 4-lift budget) they get trimmed rather than silently
-  // doubling the session. Highest-percentage groups keep theirs; the rest are reported.
-  const accGroups=on.filter(g=>ST.groups[g.id].acc)
-                    .sort((a,b)=>ST.groups[b.id].pct-ST.groups[a.id].pct);
-  const accSlots=Math.max(0,Math.min(accGroups.length,total-on.length));
-  const accSet=new Set(accGroups.slice(0,accSlots).map(g=>g.id));
-  const accTrimmed=accGroups.length-accSlots;
-  const mainTotal=Math.max(on.length,total-accSlots);
-  const remainingSlots=mainTotal-on.length;
-  let alloc=on.map(g=>({g,raw:ST.groups[g.id].pct/pctTotal*remainingSlots,n:1}));
-  alloc.forEach(a=>a.n+=Math.floor(a.raw));
-  let used=alloc.reduce((a,x)=>a+x.n,0);
-  alloc.sort((a,b)=>(b.raw-Math.floor(b.raw))-(a.raw-Math.floor(a.raw)));
-  let i=0; while(used<mainTotal){alloc[i%alloc.length].n++;used++;i++;}
+  // Every selection receives one exercise. Remaining slots follow the requested
+  // percentages and respect each group's distinct exercise-library capacity.
+  const mainTotal=Math.max(on.length,total);
+  const alloc=allocateGroupCounts(on,mainTotal,pctTotal);
 
   const sections=[];
   if(document.getElementById('optWarm').checked){
@@ -429,20 +524,15 @@ function generate(){
   const mainItems=[];
   alloc.forEach(a=>{
     const gid=a.g.id;
-    let poolC=LIB.filter(e=>e.group===gid && !e.sub && e.t==='c');
-    let poolI=LIB.filter(e=>e.group===gid && !e.sub && e.t==='i');
+    const pool=groupPool(gid);
+    const poolC=pool.filter(e=>e.t==='c');
+    const poolI=pool.filter(e=>e.t==='i');
     const chosen=[];
     // prioritise compounds
     chosen.push(...pick(poolC,Math.min(poolC.length,Math.ceil(a.n*0.6))));
     chosen.push(...pick(poolI,Math.max(0,a.n-chosen.length)));
     while(chosen.length<a.n){const extra=pick([...poolC,...poolI].filter(e=>!chosen.includes(e)),1);if(!extra.length)break;chosen.push(extra[0]);}
     chosen.slice(0,a.n).forEach(e=>mainItems.push(buildItem(e)));
-    // accessory (only for groups that won a slot in the budget)
-    if(accSet.has(gid)){
-      const accPool=LIB.filter(e=>e.sub===a.g.acc);
-      const acc=pick(accPool,1);
-      if(acc.length) mainItems.push(buildItem(acc[0]));
-    }
   });
   sections.push({title:'Main work',icon:'\uD83C\uDFCB\uFE0F',items:mainItems});
   if(document.getElementById('optCardio').checked){
@@ -452,7 +542,7 @@ function generate(){
   // form note: pick one from main items that has a note
   const noteItem=mainItems.filter(it=>it.note);
   const formNote=noteItem.length?pick(noteItem,1)[0]:null;
-  currentWorkout={date:new Date().toISOString(),dur:ST.dur,feel:ST.feel,sections,accTrimmed,
+  currentWorkout={date:new Date().toISOString(),dur:ST.dur,feel:ST.feel,sections,
     split:alloc.map(a=>({id:a.g.id,name:a.g.name,pct:ST.groups[a.g.id].pct,count:a.n})),
     formNote:formNote?{name:formNote.name,text:formNote.note}:null};
   renderOutput();
@@ -472,12 +562,6 @@ function renderOutput(){
   if(w.split){
     html+=`<div class="splitnote"><strong>Generated split</strong>`+
       w.split.map(s=>`<span class="splitchip"><span class="dot" style="background:${GC[s.id]}"></span>${s.name} ${s.pct}% \u2192 ${s.count} lift${s.count===1?'':'s'}</span>`).join('')+`</div>`;
-  }
-  if(w.accTrimmed>0){
-    const durLbl=w.dur==='15'?'10\u201315 min':w.dur==='30'?'30 min':'1 hour';
-    html+=`<div class="formnote trim"><span class="ic">\u23F1\uFE0F</span><div><b>${w.accTrimmed} accessory block${w.accTrimmed===1?'':'s'} dropped</b> \u2014 `+
-      `they don't fit ${durLbl} alongside ${w.split.length} muscle group${w.split.length===1?'':'s'}. `+
-      `Pick fewer groups or go longer to get them back.</div></div>`;
   }
   if(w.formNote){
     html+=`<div class="formnote"><span class="ic">\uD83D\uDCA1</span><div><b>Form focus \u2014 ${w.formNote.name}:</b> ${w.formNote.text}</div></div>`;
@@ -529,24 +613,26 @@ function notesText(){
   const d=new Date(w.date);
   const date=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
   const durLbl=w.dur==='15'?'10\u201315 min':w.dur==='30'?'30 min':'1 hour';
-  let t=`GOLD GYM GAiNz \u2014 ${date}\n\uD83C\uDFAF ${durLbl} \u00B7 Feeling: ${w.feel.toUpperCase()}\n`;
-  if(w.split) t+=`Split: ${w.split.map(s=>s.name+' '+s.pct+'%').join(' / ')}\n`;
-  if(w.formNote) t+=`\nForm: ${w.formNote.text}\n`;
+  const lines=[`GAiNz (${date})  \uD83C\uDFAF ${durLbl}.`];
+  if(w.split) lines.push(`Split: ${w.split.map(s=>s.name+' '+s.pct+'%').join(' / ')}`);
+  if(w.formNote) lines.push(`Form: ${w.formNote.text}`);
   w.sections.forEach(sec=>{
-    t+=`\n${sec.title.toUpperCase()}\n`;
+    if(lines[lines.length-1]!=='')lines.push('');
+    lines.push(sec.title.toUpperCase());
     sec.items.forEach(it=>{
-      if(it.warm){ t+=`- ${it.name} ${it.reps}\n`; }
+      if(it.warm){ lines.push(`- ${it.name} ${it.reps}`); }
       else{
-        const unit=it.unit==='ea'?' ea':'';
-        t+=`${it.name} | ${it.sets} x ${it.reps}\n`;
+        const unit=it.unit==='ea'?' ea':it.unit&&it.unit!=='lb'?' '+it.unit:'';
+        lines.push(`${it.name} | ${it.sets} x ${it.reps}`);
         for(let s=0;s<it.sets;s++){
-          if(it.bw) t+=`  set ${s+1}\n`;
-          else t+=`  ${it.w}${unit} x __\n`;
+          if(it.bw) lines.push('Bodyweight x ');
+          else lines.push(`${it.w}${unit} x `);
         }
+        lines.push('');
       }
     });
   });
-  return t;
+  return lines.join('\n');
 }
 function copyNotes(){
   const t=notesText();
@@ -568,7 +654,8 @@ function logWorkout(){
         logged.items.push({id:it.id,name:it.name,sets:it.sets,reps:it.reps,w:it.w,bw:it.bw,unit:it.unit});
         // update last + progression feedback
         if(!it.bw && it.w>0){ DB.last[it.id]={w:it.w,reps:it.reps,date:w.date}; }
-        const lg=LIB.find(e=>e.id===it.id); if(lg){groupsHit[lg.group]=(groupsHit[lg.group]||0)+1;}
+        const lg=LIB.find(e=>e.id===it.id);
+        const gid=exerciseGroupId(lg);if(gid){groupsHit[gid]=(groupsHit[gid]||0)+1;}
       });
     }
   });
@@ -582,6 +669,20 @@ function logWorkout(){
 }
 
 /* ---------- History ---------- */
+function sessionGroupCounts(session){
+  const counts={};let derived=false;
+  (Array.isArray(session&&session.items)?session.items:[]).forEach(item=>{
+    const exercise=LIB.find(e=>e.id===(item&&item.id));
+    const gid=exerciseGroupId(exercise);
+    if(gid){counts[gid]=(counts[gid]||0)+1;derived=true;}
+  });
+  if(derived)return counts;
+  GROUPS.forEach(g=>{
+    const n=Number(session&&session.groups&&session.groups[g.id]);
+    if(Number.isFinite(n)&&n>0)counts[g.id]=n;
+  });
+  return counts;
+}
 function renderHistory(){
   const s=DB.sessions;
   // stats
@@ -594,8 +695,11 @@ function renderHistory(){
   document.getElementById('statCards').innerHTML=cards.map(c=>`<div class="stat"><div class="n">${c[1]}</div><div class="l">${c[0]}</div></div>`).join('');
   // distribution last 30d
   const monthAgo=new Date(now-30*864e5);
-  const dist={chest:0,back:0,legs:0,shoulders:0};
-  s.filter(x=>new Date(x.date)>=monthAgo).forEach(x=>{for(const g in (x.groups||{})) dist[g]=(dist[g]||0)+x.groups[g];});
+  const dist=Object.fromEntries(GROUPS.map(g=>[g.id,0]));
+  s.filter(x=>new Date(x.date)>=monthAgo).forEach(x=>{
+    const counts=sessionGroupCounts(x);
+    GROUPS.forEach(g=>{dist[g.id]+=counts[g.id]||0;});
+  });
   const dtot=Object.values(dist).reduce((a,b)=>a+b,0);
   const dr=document.getElementById('distRow'),dl=document.getElementById('distLeg');
   if(dtot===0){dr.innerHTML='';dl.innerHTML='<div style="color:var(--text2)">No sessions logged yet.</div>';}
@@ -631,7 +735,7 @@ function beforePrint(){
   document.documentElement.setAttribute('data-print','');
   const n=DB.sessions.length;
   document.getElementById('printHead').innerHTML=
-    `<h1>Gold Gym GAiNz — Workout History</h1>`+
+    `<h1>GAiNz — Workout History</h1>`+
     `<p>Generated ${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}`+
     ` · ${n} session${n===1?'':'s'} logged · Totals are all-time; muscle focus covers the last 30 days.</p>`;
   renderHistory();  // repaints the canvas against the now-light tokens
@@ -713,29 +817,48 @@ function drawTrend(id){
 /* ---------- Build controls ---------- */
 function buildGroups(){
   const c=document.getElementById('groups');
-  c.innerHTML=GROUPS.map(g=>{
+  const cards=groups=>groups.map(g=>{
     const s=ST.groups[g.id];
     return `<div class="grp ${s.on?'on':''}" data-g="${g.id}">
       <div class="grp-head">
         <div class="grp-name"><span class="dot" style="background:${g.color}"></span>${g.name}</div>
-        <span class="switch"><input type="checkbox" class="gOn" ${s.on?'checked':''}><span class="slider"></span></span>
+        <span class="switch"><input type="checkbox" class="gOn" aria-label="${g.name} muscle group" ${s.on?'checked':''}><span class="slider"></span></span>
       </div>
       <div class="grp-body">
-        <div class="pctrow"><input type="range" class="gPct" min="5" max="100" step="5" value="${s.pct}"><span class="pctval" data-pv="${g.id}">${s.pct}%</span></div>
-        <div class="acc">${g.accName}<span class="switch"><input type="checkbox" class="gAcc" ${s.acc?'checked':''}><span class="slider"></span></span></div>
+        <div class="pctrow"><input type="range" class="gPct" aria-label="${g.name} workout percentage" min="5" max="100" step="5" value="${s.pct}"><span class="pctval" data-pv="${g.id}">${s.pct}%</span></div>
       </div>
     </div>`;
   }).join('');
+  c.innerHTML=`<section class="group-section" aria-labelledby="primaryGroupLabel">
+      <div class="group-section-head"><div class="group-section-title" id="primaryGroupLabel">Primary muscle groups</div>
+      <div class="group-section-note">Build the foundation of the session</div></div>
+      <div class="groups">${cards(PRIMARY_GROUPS)}</div>
+    </section>
+    <section class="group-section" aria-labelledby="targetGroupLabel">
+      <div class="group-section-head"><div class="group-section-title" id="targetGroupLabel">Targeted muscle groups</div>
+      <div class="group-section-note">Train alone or mix into any split</div></div>
+      <div class="groups">${cards(TARGET_GROUPS)}</div>
+    </section>`;
   c.querySelectorAll('.grp').forEach(el=>{
     const gid=el.dataset.g;
     el.querySelector('.gOn').addEventListener('change',e=>{
       const checked=e.target.checked;
+      const activeCount=GROUPS.filter(g=>ST.groups[g.id].on).length;
+      const limit=maxGroupsForDuration();
+      if(checked&&!ST.groups[gid].on&&activeCount>=limit){
+        e.target.checked=false;
+        toast(`${durationName()} supports up to ${limit} muscle groups`);
+        return;
+      }
       ST.groups[gid].on=checked;
       el.classList.toggle('on',checked);
       if(checked){
-        const otherTotal=GROUPS.filter(g=>g.id!==gid && ST.groups[g.id].on).reduce((a,g)=>a+ST.groups[g.id].pct,0);
+        const otherActive=GROUPS.filter(g=>g.id!==gid && ST.groups[g.id].on);
+        const otherTotal=otherActive.reduce((a,g)=>a+ST.groups[g.id].pct,0);
         const remaining=100-otherTotal;
-        if(remaining>=5){
+        if(!otherActive.length){
+          ST.groups[gid].pct=100;
+        }else if(remaining>=5){
           ST.groups[gid].pct=Math.min(25,remaining);
         }else{
           rebalanceActive();
@@ -743,6 +866,7 @@ function buildGroups(){
       }else{
         ST.groups[gid].pct=0;
       }
+      invalidateWorkout();
       savePrefs();
       buildGroups();
     });
@@ -751,17 +875,17 @@ function buildGroups(){
       const allowed=Math.max(5,100-otherTotal);
       ST.groups[gid].pct=Math.min(+e.target.value,allowed);
       e.target.value=ST.groups[gid].pct;
+      invalidateWorkout();
       updatePcts();
     });
     // 'change' fires on release, so dragging doesn't write to storage per pixel.
     el.querySelector('.gPct').addEventListener('change',savePrefs);
-    el.querySelector('.gAcc').addEventListener('change',e=>{ST.groups[gid].acc=e.target.checked;savePrefs();});
   });
   updatePcts();
 }
 /* ---------- Randomize allocation ---------- */
-// Preference weight per GROUPS entry. Uniform today; swapping this for the inverse
-// of the 30-day distribution is what biases rolls toward under-trained muscles.
+// Preference weight per standalone group. Uniform today; this keeps primary and
+// targeted muscles equally eligible for a surprise split.
 function groupWeights(){ return GROUPS.map(()=>1); }
 // Weighted sample without replacement. Returns GROUPS indices.
 function sampleGroups(k,weights){
@@ -800,6 +924,7 @@ function randomizeAllocation(){
   const before=JSON.stringify(ST.groups);
   const w=groupWeights();
   for(let tries=0;tries<6;tries++){ rollAllocation(w); if(JSON.stringify(ST.groups)!==before) break; }
+  invalidateWorkout();
   savePrefs();
   buildGroups();  // updatePcts() owns the <=100% cap, so re-render rather than poke sliders
   const on=GROUPS.filter(g=>ST.groups[g.id].on);
@@ -835,9 +960,17 @@ function updatePcts(){
   const totalEl=document.getElementById('allocTotal');
   const remainEl=document.getElementById('allocRemaining');
   const summary=document.getElementById('allocSummary');
+  const limit=maxGroupsForDuration();
+  const overLimit=on.length>limit;
+  const limitEl=document.getElementById('groupLimitHint');
+  const hint=document.getElementById('groupHint');
+  const balanceBtn=document.getElementById('balanceBtn');
   if(totalEl)totalEl.textContent=sum+'% allocated';
   if(remainEl)remainEl.textContent=remaining+'% remaining';
-  if(summary)summary.classList.toggle('over',sum>100);
+  if(balanceBtn)balanceBtn.classList.toggle('hide',!(sum>0&&sum<100));
+  if(limitEl)limitEl.textContent=`${durationName()} supports up to ${limit} selected group${limit===1?'':'s'}.`;
+  if(hint)hint.classList.toggle('over',overLimit);
+  if(summary)summary.classList.toggle('over',sum>100||overLimit);
 }
 
 /* ---------- Tabs & segments ---------- */
@@ -852,6 +985,8 @@ function wireSeg(id,key){
   const seg=document.getElementById(id);
   seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
     seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');ST[key]=b.dataset.v;
+    invalidateWorkout();
+    if(key==='dur')updatePcts();
     savePrefs();  // writes dur only; feel is not persisted
   });
 }
@@ -863,7 +998,9 @@ wireSeg('feelSeg','feel');
 syncSeg('durSeg',ST.dur);
 document.getElementById('genBtn').onclick=generate;
 document.getElementById('randBtn').onclick=randomizeAllocation;
+document.getElementById('balanceBtn').onclick=()=>balanceAllocation(true);
 document.getElementById('pdfBtn').onclick=exportPdf;
+['optWarm','optCardio'].forEach(id=>document.getElementById(id).addEventListener('change',invalidateWorkout));
 
 /* ---------- Toast ---------- */
 let toastT;
