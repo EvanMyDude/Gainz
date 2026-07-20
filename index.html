@@ -140,6 +140,11 @@ header.top p{color:var(--text2);font-size:14px;}
 .ex-name{font-weight:700;font-size:15px;}
 .ex-scheme{color:var(--text2);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;}
 .ex-note{color:var(--text2);font-size:12.5px;margin-top:4px;font-style:italic;}
+.ex-progress{display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 9px;border-radius:20px;
+  font-size:11.5px;font-weight:700;border:1px solid var(--border);background:var(--soft);color:var(--text2);}
+.ex-progress.up{border-color:var(--green);background:var(--greenSoft);color:var(--green);}
+.ex-progress.hold{border-color:var(--orange);background:var(--orangeSoft);color:var(--orange);}
+.ex-progress.down{border-color:var(--red);background:var(--redSoft);color:var(--red);}
 .sets{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
 .setpill{display:flex;align-items:center;gap:4px;background:var(--canvas);border:1px solid var(--border);
   border-radius:8px;padding:4px 6px;}
@@ -197,6 +202,20 @@ header.top p{color:var(--text2);font-size:14px;}
   width:min(920px,calc(100% - 40px));padding:10px;background:var(--canvas);border:1px solid var(--border);border-radius:14px;
   box-shadow:0 6px 24px rgba(0,0,0,.16);}
 .live-actions .btn:disabled{opacity:.5;cursor:not-allowed;filter:none;}
+.rest-bar{position:fixed;left:50%;transform:translateX(-50%) translateY(12px);bottom:calc(72px + env(safe-area-inset-bottom));
+  z-index:29;width:min(920px,calc(100% - 40px));display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:var(--canvas);border:1px solid var(--blue);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.16);
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s,transform .2s,background-color .2s,border-color .2s;}
+.rest-bar.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0);}
+.rest-bar.done{border-color:var(--green);background:var(--greenSoft);}
+.rest-mid{flex:1;display:flex;flex-direction:column;align-items:center;line-height:1.1;}
+.rest-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);}
+.rest-bar.done .rest-label{color:var(--green);}
+.rest-time{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--blue);}
+.rest-bar.done .rest-time{color:var(--green);}
+.rest-adjust,.rest-skip{min-height:40px;border:1px solid var(--border);border-radius:9px;background:var(--soft);color:var(--text);
+  font:inherit;font-weight:700;font-size:13px;padding:0 12px;cursor:pointer;flex-shrink:0;}
+.rest-skip{border-color:var(--blue);color:var(--blue);background:var(--blueSoft);}
 .performed-sets{margin:5px 0 8px 12px;padding-left:10px;border-left:2px solid var(--border);}
 .performed-row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;color:var(--text2);font-size:12.5px;}
 .performed-row.drop{color:var(--blue);padding-left:12px;}
@@ -208,6 +227,7 @@ header.top p{color:var(--text2);font-size:14px;}
   .set-field input{width:66px;}
   .drop-list{margin-left:0;}
   .live-actions{width:calc(100% - 28px);}
+  .rest-bar{width:calc(100% - 28px);bottom:calc(76px + env(safe-area-inset-bottom));}
 }
 .empty{text-align:center;color:var(--text2);padding:40px 20px;}
 .empty .big{font-size:40px;margin-bottom:10px;}
@@ -240,7 +260,7 @@ canvas{width:100%;max-width:100%;display:block;}
   @page{margin:14mm;}
   body{background:#fff;font-size:10.5pt;}
   .wrap{max-width:none;padding:0;}
-  .tabs,header.top,.toast,.btn,#trendSel,#tab-gen{display:none!important;}
+  .tabs,header.top,.toast,.rest-bar,.btn,#trendSel,#tab-gen{display:none!important;}
   #tab-hist.hide{display:block!important;}   /* (1,1,0) beats .hide (0,1,0) */
   .printhead{display:block;margin-bottom:18px;}
   .printhead h1{font-size:19pt;letter-spacing:-.02em;}
@@ -353,6 +373,12 @@ canvas{width:100%;max-width:100%;display:block;}
   </section>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="rest-bar" id="restBar" role="timer" aria-label="Rest timer" aria-live="off">
+  <button type="button" class="rest-adjust" data-rest="-15" aria-label="Subtract 15 seconds">−15</button>
+  <div class="rest-mid"><span class="rest-label">Rest</span><span class="rest-time" id="restTime">0:00</span></div>
+  <button type="button" class="rest-adjust" data-rest="15" aria-label="Add 15 seconds">+15</button>
+  <button type="button" class="rest-skip" id="restSkip" aria-label="Skip rest">Skip</button>
+</div>
 
 <script>
 "use strict";
@@ -619,15 +645,44 @@ function topReps(r){ // parse top of a rep range like '5-8' -> 8, 'AMRAP'->null
   if(!r) return null; const m=(''+r).match(/(\d+)\s*-\s*(\d+)/); if(m) return +m[2];
   const s=(''+r).match(/^(\d+)/); return s?+s[1]:null;
 }
+// Only clean numeric ranges ('5-8') drive double progression. Time-based
+// ('60 sec'), AMRAP, per-side ('10/side') and single-number targets return null
+// so suggestWeight() falls back to the older feel-based math for them.
+function repRange(r){
+  const m=(''+r).match(/^\s*(\d+)\s*-\s*(\d+)\s*$/); if(!m) return null;
+  const low=+m[1],high=+m[2]; return high>low?{low,high}:null;
+}
 function roundInc(w,unit){ if(unit==='ea'){return Math.max(0,Math.round(w/2.5)*2.5);} return Math.max(0,Math.round(w/5)*5); }
+function weightStep(unit){ return unit==='ea'?2.5:5; }
+// feel-only recommendation: the original behavior, kept as the fallback path.
+function feelWeight(w){
+  if(w>0){
+    if(ST.feel==='good') return w*1.04;      // progress ~4%
+    if(ST.feel==='bad') return w*0.88;       // deload ~12%
+  }
+  return w;
+}
+// Returns {w, action, reason}. Double progression when we know the reps you hit
+// at your top weight last time; otherwise a feel-based fallback so nothing
+// regresses for old logs, blank reps, or non-ranged targets.
 function suggestWeight(e){
   const last=DB.last[e.id]||{w:e.w||0,reps:e.reps};
-  let w=last.w||0;
-  if(w>0){
-    if(ST.feel==='good') w=w*1.04;      // progress ~4%
-    else if(ST.feel==='bad') w=w*0.88;  // deload ~12%
+  const w=last.w||0;
+  const range=repRange(e.reps);
+  const hit=last.hitReps;
+  if(w>0 && range && Number.isFinite(hit)){
+    if(ST.feel==='bad')
+      return {w:roundInc(w*0.88,e.unit),action:'backoff',reason:`deload · you called it`};
+    if(hit>=range.high || (ST.feel==='good' && hit>=range.low)){
+      const from=roundInc(w,e.unit),to=roundInc(w+weightStep(e.unit),e.unit);
+      const why=hit>=range.high?`hit ${range.high}+ last time`:`feeling good · pushing up`;
+      return {w:to,action:'progress',reason:`+${to-from} lb · ${why}`};
+    }
+    if(hit>=range.low)
+      return {w:roundInc(w,e.unit),action:'hold',reason:`hold · aim for ${range.high} (got ${hit})`};
+    return {w:roundInc(w*0.9,e.unit),action:'backoff',reason:`back off · missed ${range.low} (got ${hit})`};
   }
-  return roundInc(w,e.unit);
+  return {w:roundInc(feelWeight(w),e.unit),action:'steady',reason:null};
 }
 function schemeFor(e){
   // sets by duration & feeling; compounds get more
@@ -855,6 +910,7 @@ function setWorkoutMode(active){
   if(tab)tab.textContent=active?'Workout':'Generate';
   const out=document.getElementById('output');
   out.style.marginTop=active?'0':'24px';
+  if(!active)hideRest();   // leaving the workout clears any running countdown
 }
 function resumeWorkout(workout,announce=true){
   currentWorkout=ensureWorkoutTracking(workout);
@@ -967,8 +1023,10 @@ function generate(){
 }
 function buildItem(e){
   const sets=schemeFor(e);
-  const w=e.bw?null:suggestWeight(e);
+  const suggestion=e.bw?null:suggestWeight(e);
+  const w=suggestion?suggestion.w:null;
   return {id:e.id,name:e.name,reps:e.reps,unit:e.unit||'lb',bw:!!e.bw,sets,w,note:e.note||null,t:e.t,
+    progression:suggestion&&suggestion.reason?{action:suggestion.action,reason:suggestion.reason}:null,
     group:exerciseGroupId(e),pairMeta:PAIR_META[e.id]||{equipment:'other',pattern:'other',fatigue:e.t==='c'?'moderate':'low'}};
 }
 
@@ -1021,6 +1079,11 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
     `${code?`<span class="superset-code">${code}</span>`:''}${it.name}</span>`+
     `<span class="ex-scheme">${it.sets} \u00D7 ${it.reps}</span></div>`;
   if(it.note)html+=`<div class="ex-note">${it.note}</div>`;
+  if(it.progression&&it.progression.reason){
+    const map={progress:{cls:'up',ic:'↑'},hold:{cls:'hold',ic:'→'},backoff:{cls:'down',ic:'↓'}};
+    const p=map[it.progression.action];
+    if(p)html+=`<div class="ex-progress ${p.cls}"><span aria-hidden="true">${p.ic}</span>${escapeHtml(it.progression.reason)}</div>`;
+  }
   html+=`<div class="sets">${(it.setEntries||[]).map((entry,index)=>setEntryHtml(it,sectionIndex,itemIndex,entry,index)).join('')}</div>`;
   return html+`</div>`;
 }
@@ -1115,6 +1178,8 @@ function handleWorkoutClick(event){
     button.textContent=entry.done?'\u2713':entry.order;button.setAttribute('aria-pressed',entry.done);
     button.setAttribute('aria-label',`Mark ${item.name} set ${entry.order} ${entry.done?'incomplete':'complete'}`);
     row.querySelectorAll('[data-action="toggle-drop"]').forEach(dropButton=>{dropButton.disabled=!entry.done;});
+    // Start rest only when completing a set; a superset rests once, after A2.
+    if(entry.done&&(!item.supersetId||item.supersetOrder===2))startRest(restSeconds(item));
     if(!entry.done&&entry.drops.length)rerenderOutputInPlace();else updateProgressUI();return;
   }
   if(button.dataset.action==='add-drop'){
@@ -1228,7 +1293,17 @@ function logWorkout(){
           reps:it.reps,w:representative,bw:it.bw,unit:it.unit,supersetId:it.supersetId||null,
           supersetOrder:it.supersetOrder||null,performedSets:performed});
         // Only completed, non-drop working weight can influence the next suggestion.
-        if(!it.bw&&representative>0)nextDB.last[it.id]={w:representative,reps:it.reps,date:completedAt};
+        // hitReps = the lowest reps you got across sets at the top weight; double
+        // progression only advances when every top-weight set cleared the target.
+        if(!it.bw&&representative>0){
+          // A set can be checked off without a rep count; treat that as unknown
+          // (not zero) so a blank done set never fabricates a back-off next time.
+          const topSetReps=performed
+            .filter(set=>Number(set.weight)===representative&&set.actualReps!=null&&Number.isFinite(+set.actualReps))
+            .map(set=>+set.actualReps);
+          nextDB.last[it.id]={w:representative,reps:it.reps,date:completedAt,
+            hitReps:topSetReps.length?Math.min(...topSetReps):null};
+        }
         const lg=LIB.find(e=>e.id===it.id);
         const gid=exerciseGroupId(lg);if(gid){groupsHit[gid]=(groupsHit[gid]||0)+1;}
       });
@@ -1651,6 +1726,62 @@ document.getElementById('balanceBtn').onclick=()=>balanceAllocation(true);
 document.getElementById('pdfBtn').onclick=exportPdf;
 ['optWarm','optCardio'].forEach(id=>document.getElementById(id).addEventListener('change',invalidateWorkout));
 document.getElementById('optSuperset').addEventListener('change',()=>{invalidateWorkout();syncSupersetAvailability();});
+
+/* ---------- Rest timer ---------- */
+// Ephemeral by design: a running timer is never written to the active draft, so
+// reloading mid-workout never resurrects a stale countdown. Duration keys off
+// each lift's fatigue rating; a superset rests once, after its second exercise.
+let restEndAt=null,restTickT=null,restHideT=null,restRemaining=0;
+function fmtClock(seconds){const s=Math.max(0,Math.round(seconds));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+function restSeconds(item){
+  if(item.supersetId)return 90;
+  const fatigue=item.pairMeta&&item.pairMeta.fatigue;
+  if(fatigue==='high')return 180;
+  if(fatigue==='low')return 60;
+  return 120;   // moderate or unknown
+}
+function renderRest(){const t=document.getElementById('restTime');if(t)t.textContent=fmtClock(restRemaining);}
+function startRest(seconds){
+  const bar=document.getElementById('restBar');if(!bar)return;
+  clearInterval(restTickT);clearTimeout(restHideT);restHideT=null;
+  bar.classList.remove('done');bar.classList.add('show');
+  restRemaining=seconds;renderRest();
+  // Anchor on performance.now() so a backgrounded tab resumes at the right time.
+  restEndAt=performance.now()+seconds*1000;
+  restTickT=setInterval(tickRest,250);
+}
+function tickRest(){
+  if(restEndAt==null)return;
+  restRemaining=(restEndAt-performance.now())/1000;
+  if(restRemaining<=0){restRemaining=0;renderRest();finishRest();return;}
+  renderRest();
+}
+function finishRest(){
+  clearInterval(restTickT);restTickT=null;restEndAt=null;
+  const bar=document.getElementById('restBar');if(!bar)return;
+  restRemaining=0;renderRest();bar.classList.add('done');
+  if(navigator.vibrate){try{navigator.vibrate([120,60,120]);}catch(e){}}
+  restHideT=setTimeout(hideRest,1600);
+}
+function hideRest(){
+  clearInterval(restTickT);restTickT=null;restEndAt=null;clearTimeout(restHideT);restHideT=null;
+  const bar=document.getElementById('restBar');if(bar)bar.classList.remove('show','done');
+}
+function adjustRest(delta){
+  if(restEndAt==null)return;   // ignore taps once the timer has already elapsed
+  restEndAt=Math.max(performance.now(),restEndAt+delta*1000);
+  restRemaining=(restEndAt-performance.now())/1000;
+  const bar=document.getElementById('restBar');if(bar)bar.classList.remove('done');
+  if(restRemaining<=0){restRemaining=0;renderRest();finishRest();}else renderRest();
+}
+(function(){
+  const bar=document.getElementById('restBar');if(!bar)return;
+  bar.addEventListener('click',e=>{
+    const adj=e.target.closest('[data-rest]');
+    if(adj){adjustRest(+adj.dataset.rest);return;}
+    if(e.target.closest('#restSkip'))hideRest();
+  });
+})();
 
 /* ---------- Toast ---------- */
 let toastT;
