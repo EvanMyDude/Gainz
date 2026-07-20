@@ -400,14 +400,16 @@ const LIB = [
   {id:'lpcalf',name:'Leg Press Calf Raise',group:'legs',sub:'calves',t:'i',w:80,reps:'25'},
   {id:'slcalf',name:'Single-Leg Calf Raise',group:'legs',sub:'calves',t:'i',w:48,reps:'15',unit:'ea'},
   // SHOULDERS
-  {id:'ohp',name:'Overhead Barbell Press',group:'shoulders',t:'c',w:95,reps:'5-8',note:'Ribs down, not flared. Brace hard.'},
+  {id:'ohp',name:'Overhead Barbell Press',group:'shoulders',t:'c',w:95,reps:'5-8',selectionWeight:.55,note:'Ribs down, not flared. Brace hard.'},
   {id:'dbohp',name:'Seated DB Shoulder Press',group:'shoulders',t:'c',w:50,reps:'8-10',unit:'ea',exclusive:'seated_db_press'},
   {id:'arnold',name:'Arnold Press',group:'shoulders',t:'c',w:45,reps:'8-10',unit:'ea',exclusive:'seated_db_press'},
+  {id:'landminepress',name:'Single-Arm Landmine Press',group:'shoulders',t:'c',w:45,reps:'8-10/side',note:'Press up and forward in the shoulder blade’s natural path.'},
   {id:'uprightrow',name:'Upright Row',group:'shoulders',t:'i',w:50,reps:'10-12',note:'Lead with the elbows and keep the range comfortable.'},
   {id:'lateral',name:'Lateral Raise',group:'shoulders',t:'i',w:10,reps:'12',note:'Slight forward lean, lead with the pinky.'},
   {id:'cablelat',name:'Cable Lateral Raise',group:'shoulders',t:'i',w:12,reps:'12-15'},
   {id:'facepull',name:'Face Pull',group:'shoulders',t:'i',w:50,reps:'15-20',note:'External rotation at the top. Postural gold.'},
   {id:'reardelt',name:'Rear Delt Fly',group:'shoulders',t:'i',w:15,reps:'15'},
+  {id:'reversepecdeck',name:'Reverse Pec Deck',group:'shoulders',t:'i',w:60,reps:'12-15',note:'Keep the chest planted and sweep the arms wide.'},
   // shoulders accessory: core
   {id:'plank',name:'Plank',group:'shoulders',sub:'core',t:'i',bw:true,reps:'60 sec',note:'Squeeze glutes. Pull ribs to hips.'},
   {id:'deadbug',name:'Dead Bugs',group:'shoulders',sub:'core',t:'i',bw:true,reps:'10 (5/side)'},
@@ -463,11 +465,13 @@ const PAIR_META={
   ohp:{equipment:'barbell',pattern:'vertical_press',fatigue:'high'},
   dbohp:{equipment:'dumbbell',pattern:'vertical_press',fatigue:'moderate'},
   arnold:{equipment:'dumbbell',pattern:'vertical_press',fatigue:'moderate'},
+  landminepress:{equipment:'barbell',pattern:'angled_press',fatigue:'moderate'},
   uprightrow:{equipment:'barbell',pattern:'upright_pull',fatigue:'moderate'},
   lateral:{equipment:'dumbbell',pattern:'lateral_raise',fatigue:'low'},
   cablelat:{equipment:'cable',pattern:'lateral_raise',fatigue:'low'},
   facepull:{equipment:'cable',pattern:'rear_delt',fatigue:'low'},
   reardelt:{equipment:'dumbbell',pattern:'rear_delt',fatigue:'low'},
+  reversepecdeck:{equipment:'machine',pattern:'rear_delt',fatigue:'low'},
   plank:{equipment:'bodyweight',pattern:'anti_extension',fatigue:'low'},
   deadbug:{equipment:'bodyweight',pattern:'anti_extension',fatigue:'low'},
   kneeraise:{equipment:'bodyweight',pattern:'hanging_core',fatigue:'moderate'},
@@ -640,7 +644,10 @@ function canShareWorkout(exercise,chosen){
 function pickCompatible(arr,n,chosen=[],rng=Math.random){
   const pool=[...arr],out=[];
   while(out.length<n&&pool.length){
-    const candidate=pool.splice(Math.floor(rng()*pool.length),1)[0];
+    const total=pool.reduce((sum,item)=>sum+(Number(item.selectionWeight)||1),0);
+    let roll=rng()*total,index=0;
+    while(index<pool.length-1&&(roll-=(Number(pool[index].selectionWeight)||1))>0)index++;
+    const candidate=pool.splice(index,1)[0];
     if(canShareWorkout(candidate,[...chosen,...out]))out.push(candidate);
   }
   return out;
@@ -919,8 +926,11 @@ function generate(){
     const poolC=pool.filter(e=>e.t==='c');
     const poolI=pool.filter(e=>e.t==='i');
     const chosen=[];
-    // prioritise compounds
-    chosen.push(...pickCompatible(poolC,Math.min(poolC.length,Math.ceil(a.n*0.6)),chosen));
+    // Most groups prioritize compounds. Shoulders use one primary press in a
+    // typical session so every shoulder workout does not become an OHP day;
+    // only very large shoulder blocks start with two pressing movements.
+    const compoundTarget=gid==='shoulders'?(a.n>=7?2:1):Math.ceil(a.n*0.6);
+    chosen.push(...pickCompatible(poolC,Math.min(poolC.length,compoundTarget),chosen));
     chosen.push(...pickCompatible(poolI,Math.max(0,a.n-chosen.length),chosen));
     while(chosen.length<a.n){
       const extra=pickCompatible([...poolC,...poolI].filter(e=>!chosen.includes(e)),1,chosen);
@@ -993,7 +1003,8 @@ function dropEntryHtml(item,sectionIndex,itemIndex,setIndex,drop,dropIndex,paren
 function setEntryHtml(item,sectionIndex,itemIndex,entry,setIndex){
   const actionAttrs=`data-si="${sectionIndex}" data-ii="${itemIndex}" data-set="${setIndex}"`;
   const drops=(entry.drops||[]).map((drop,index)=>dropEntryHtml(item,sectionIndex,itemIndex,setIndex,drop,index,entry.done)).join('');
-  const addDrop=!item.bw&&currentWorkout.feel!=='bad'?`<button type="button" class="ds-btn" data-action="add-drop" ${actionAttrs} aria-label="Add a drop set after ${item.name} set ${entry.order}">+ ds</button>`:'';
+  const isLastSet=setIndex===item.setEntries.length-1;
+  const addDrop=isLastSet&&!item.bw&&!item.supersetId&&currentWorkout.feel!=='bad'?`<button type="button" class="ds-btn" data-action="add-drop" ${actionAttrs} aria-label="Add a drop set after ${item.name} set ${entry.order}">+ ds</button>`:'';
   return `<div class="set-entry ${entry.done?'done':''}" data-set-row="${setIndex}"><div class="set-main">`+
     `<button type="button" class="set-check" data-action="toggle-set" ${actionAttrs} aria-pressed="${entry.done}" aria-label="Mark ${item.name} set ${entry.order} ${entry.done?'incomplete':'complete'}">${entry.done?'\u2713':entry.order}</button>`+
     `<div class="set-content"><div class="set-meta"><div><strong>Set ${entry.order}</strong> <span class="set-target">Target ${item.reps}</span></div>${addDrop}</div>`+
@@ -1107,6 +1118,11 @@ function handleWorkoutClick(event){
     if(!entry.done&&entry.drops.length)rerenderOutputInPlace();else updateProgressUI();return;
   }
   if(button.dataset.action==='add-drop'){
+    const isLastSet=+button.dataset.set===item.setEntries.length-1;
+    if(!isLastSet||item.bw||item.supersetId||currentWorkout.feel==='bad'){
+      toast(item.supersetId?'Drop sets are disabled on superset lifts':'Drop sets are available on the final working set only');
+      return;
+    }
     const prior=entry.drops.length?entry.drops[entry.drops.length-1].weight:entry.weight;
     entry.drops.push({weight:roundInc((+prior||0)*.75,item.unit),targetReps:'AMRAP',actualReps:null,done:false});
     markWorkoutDirty(true);rerenderOutputInPlace();toast('Drop step added');return;
