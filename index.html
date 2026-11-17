@@ -137,6 +137,16 @@ header.top p{color:var(--text2);font-size:14px;}
 .ex-name{font-weight:700;font-size:15px;}
 .ex-scheme{color:var(--text2);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;}
 .ex-note{color:var(--text2);font-size:12.5px;margin-top:4px;font-style:italic;}
+.ex-actions{display:flex;justify-content:flex-end;margin-top:10px;}
+.ex-hide,.unhide-btn{border:1px solid var(--border);background:none;color:var(--text2);font:inherit;font-size:12px;
+  font-weight:600;border-radius:8px;padding:6px 12px;min-height:36px;cursor:pointer;white-space:nowrap;}
+.ex.is-hidden>:not(.ex-actions){opacity:.45;}
+.ex.is-hidden .ex-hide{color:var(--blue);border-color:var(--blue);}
+.hidden-box{margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--canvas);padding:12px 14px;font-size:14px;}
+.hidden-box summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--text2);}
+.hidden-box .hint{margin-top:6px;}
+.hidden-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);}
+.hidden-row:first-of-type{margin-top:10px;}
 .sets{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
 .setpill{display:flex;align-items:center;gap:4px;background:var(--canvas);border:1px solid var(--border);
   border-radius:8px;padding:4px 6px;}
@@ -262,6 +272,12 @@ canvas{width:100%;max-width:100%;display:block;}
     <button class="btn" id="genBtn">Generate workout</button>
 
     <div id="output" class="hide" style="margin-top:24px;"></div>
+
+    <details class="hidden-box hide" id="hiddenBox">
+      <summary>Hidden exercises (<span id="hiddenCount">0</span>)</summary>
+      <p class="hint">Hidden exercises are never generated.</p>
+      <div id="hiddenList"></div>
+    </details>
   </section>
 
   <!-- HISTORY TAB -->
@@ -441,6 +457,7 @@ function save(d){localStorage.setItem(KEY,JSON.stringify(d))}
 let DB=load();
 if(!DB.sessions) DB.sessions=[];
 if(!DB.last) DB.last={};   // last[id] = {w, reps, date}
+if(!Array.isArray(DB.hidden)) DB.hidden=[];   // exercise ids never to generate
 // seed last from library defaults on first run so suggestions aren't empty
 if(!DB.seeded){ LIB.forEach(e=>{ if(!DB.last[e.id]) DB.last[e.id]={w:e.w||0,reps:e.reps}; }); DB.seeded=true; save(DB); }
 const bundledImport=importBundledHistory(DB);
@@ -504,6 +521,7 @@ function topReps(r){ // parse top of a rep range like '5-8' -> 8, 'AMRAP'->null
   const s=(''+r).match(/^(\d+)/); return s?+s[1]:null;
 }
 function uiLoadUnit(item){
+  if(item.loadType==='assistance')return 'lb assist';
   const style=loadStyleFor(item);
   if(style==='pair')return 'lb DBs';
   if(style==='perSide')return 'lb ea';
@@ -569,7 +587,12 @@ function generate(){
   const request={dur:ST.dur,feel:ST.feel,groups:ST.groups,
     opts:{warm:checked('optWarm'),cooldown:checked('optCooldown'),cardio:checked('optCardio'),superset:checked('optSuperset')},
     seed:Math.floor(Math.random()*4294967296)};
-  currentWorkout=generateWorkout(request,{last:DB.last,date:new Date().toISOString()});
+  const workout=generateWorkout(request,{last:DB.last,hidden:DB.hidden,date:new Date().toISOString()});
+  if(!workout.sections.find(section=>section.title==='Main work').items.length){
+    toast('Every exercise for this selection is hidden');
+    return;
+  }
+  currentWorkout=workout;
   renderOutput();
   if(request.opts.superset&&ST.feel!=='bad'){
     const pairs=currentWorkout.supersets.length;
@@ -585,7 +608,8 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
     return `<div class="ex"><div class="ex-head"><span class="ex-name">${it.name}</span><span class="ex-scheme">${it.reps}</span></div></div>`;
   }
   const unit=uiLoadUnit(it);
-  let html=`<div class="ex"><div class="ex-head"><span class="ex-name">`+
+  const hidden=DB.hidden.includes(it.id);
+  let html=`<div class="ex${hidden?' is-hidden':''}" data-ex="${it.id}"><div class="ex-head"><span class="ex-name">`+
     `${code?`<span class="superset-code">${code}</span>`:''}${it.name}</span>`+
     `<span class="ex-scheme">${it.sets} \u00D7 ${it.reps}</span></div>`;
   if(it.note)html+=`<div class="ex-note">${it.note}</div>`;
@@ -597,8 +621,48 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
       html+=`<div class="setpill"><input type="number" aria-label="${it.name} set ${s+1} weight" data-si="${sectionIndex}" data-ii="${itemIndex}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
     }
   }
-  return html+`</div></div>`;
+  return html+`</div><div class="ex-actions">${hideButtonHtml(it.id,it.name,hidden)}</div></div>`;
 }
+
+/* ---------- Hidden exercises ---------- */
+function hideButtonHtml(id,name,hidden){
+  return `<button type="button" class="ex-hide" data-hide="${id}" aria-pressed="${hidden}" `+
+    `aria-label="${hidden?'Show':'Hide'} ${escapeHtml(name)} in future workouts">${hidden?'Hidden · Undo':'Hide'}</button>`;
+}
+function exerciseName(id){
+  const exercise=LIB.find(e=>e.id===id);
+  return exercise?exercise.name:id;
+}
+function setHidden(id,hide){
+  DB.hidden=DB.hidden.filter(other=>other!==id);
+  if(hide)DB.hidden.push(id);
+  save(DB);
+  syncHiddenUi();
+  toast(hide?`Hidden: ${exerciseName(id)} — regenerate to replace it`:`${exerciseName(id)} is back in rotation`);
+}
+// Reflect DB.hidden on the workout cards in place (no re-render, so the page
+// does not jump) and rebuild the list of hidden exercises.
+function syncHiddenUi(){
+  document.querySelectorAll('#output .ex[data-ex]').forEach(card=>{
+    const id=card.dataset.ex,hidden=DB.hidden.includes(id);
+    card.classList.toggle('is-hidden',hidden);
+    card.querySelector('.ex-actions').innerHTML=hideButtonHtml(id,exerciseName(id),hidden);
+  });
+  const box=document.getElementById('hiddenBox');
+  box.classList.toggle('hide',!DB.hidden.length);
+  document.getElementById('hiddenCount').textContent=DB.hidden.length;
+  document.getElementById('hiddenList').innerHTML=DB.hidden.map(id=>
+    `<div class="hidden-row"><span>${escapeHtml(exerciseName(id))}</span>`+
+    `<button type="button" class="unhide-btn" data-unhide="${escapeHtml(id)}">Show again</button></div>`).join('');
+}
+// One delegated listener covers the workout cards and the hidden list.
+document.getElementById('tab-gen').addEventListener('click',event=>{
+  const hide=event.target.closest('[data-hide]');
+  if(hide){setHidden(hide.dataset.hide,!DB.hidden.includes(hide.dataset.hide));return;}
+  const unhide=event.target.closest('[data-unhide]');
+  if(unhide)setHidden(unhide.dataset.unhide,false);
+});
+
 function renderOutput(){
   const out=document.getElementById('output');
   out.classList.remove('hide');
@@ -666,7 +730,8 @@ function logWorkout(){
   w.sections.forEach(sec=>{
     if(sec.title==='Main work'){
       sec.items.forEach(it=>{
-        logged.items.push({id:it.id,name:it.name,sets:it.sets,reps:it.reps,w:it.w,bw:it.bw,unit:it.unit,loadStyle:it.loadStyle||null});
+        logged.items.push({id:it.id,name:it.name,sets:it.sets,reps:it.reps,w:it.w,bw:it.bw,unit:it.unit,loadStyle:it.loadStyle||null,
+          ...(it.loadType?{loadType:it.loadType}:{})});
         // update last + progression feedback
         if(!it.bw && it.w>0){ DB.last[it.id]={w:it.w,reps:it.reps,date:w.date}; }
         const lg=LIB.find(e=>e.id===it.id);
@@ -1103,6 +1168,7 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 /* ---------- Init ---------- */
 buildGroups();
 syncSupersetAvailability();
+syncHiddenUi();
 if(bundledImport.count)setTimeout(()=>toast(`Imported ${bundledImport.count} Apple Notes workouts`),0);
 window.addEventListener('resize',()=>{const sel=document.getElementById('trendSel');if(!document.getElementById('tab-hist').classList.contains('hide'))drawTrend(sel.disabled?null:sel.value);});
 </script>

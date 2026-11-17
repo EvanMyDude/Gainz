@@ -3,7 +3,7 @@
 // This is a measurement, not a test; the selection rework is judged against it.
 import { readFileSync } from 'node:fs';
 import { generateWorkout } from '../../js/engine.js';
-import { GROUPS } from '../../js/exercises.js';
+import { GROUPS, PATTERNS } from '../../js/exercises.js';
 import { expandGroups } from '../helpers.js';
 
 const RUNS = 2000;
@@ -24,6 +24,7 @@ const pct = (runs, test) => (runs.length ? (runs.filter(test).length / runs.leng
 const mean = values => (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1);
 const count = (items, test) => items.filter(test).length;
 const pattern = item => item.pairMeta.pattern;
+const family = item => PATTERNS[pattern(item)].family;
 const has = (items, id) => items.some(item => item.id === id);
 const sets = items => items.reduce((sum, item) => sum + item.sets, 0);
 const distinct = runs => new Set(runs.map(items => items.map(item => item.id).sort().join())).size;
@@ -42,7 +43,7 @@ const row = (config, metric, value) => rows.push(`| ${config} | ${metric} | ${va
 for (const dur of ['15', '30', '60']) {
   const runs = sample({ chest: 100 }, dur);
   row(`Chest, ${dur} min`, 'lifts / sets', `${mean(runs.map(r => r.length))} / ${mean(runs.map(sets))}`);
-  row(`Chest, ${dur} min`, '4+ horizontal presses', pct(runs, r => count(r, i => pattern(i) === 'horizontal_press') >= 4));
+  row(`Chest, ${dur} min`, '4+ horizontal presses', pct(runs, r => count(r, i => family(i) === 'horizontal_press') >= 4));
   row(`Chest, ${dur} min`, 'distinct workouts', distinct(runs));
 }
 for (const dur of ['15', '30', '60']) {

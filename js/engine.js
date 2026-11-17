@@ -3,8 +3,9 @@
 // same request and seed always produce the same workout.
 //
 //   request = { dur, feel, groups: {id: {on, pct}}, opts: {warm, cooldown, cardio, superset}, seed }
-//   ctx     = { last: {exerciseId: {w, reps}}, date: ISO string }
-import { LIB, PAIR_META, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
+//   ctx     = { last: {exerciseId: {w, reps}}, date: ISO string,
+//               hidden?: [exerciseId] never to select, lib?: replacement library (tests) }
+import { LIB, PATTERNS, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
 
 /* ---------- Seeded RNG ---------- */
 export function mulberry32(seed){
@@ -22,6 +23,9 @@ function roundInc(w,unit){ if(unit==='ea'){return Math.max(0,Math.round(w/2.5)*2
 function suggestWeight(e,feel,last){
   const prior=last[e.id]||{w:e.w||0,reps:e.reps};
   let w=prior.w||0;
+  // Assistance runs the other way (less is harder) and sits on a weight stack,
+  // so the percentage nudges below would move it wrongly. Carry it unchanged.
+  if(e.loadType==='assistance')return w;
   if(w>0){
     if(feel==='good') w=w*1.04;      // progress ~4%
     else if(feel==='bad') w=w*0.88;  // deload ~12%
@@ -88,7 +92,7 @@ function pickCompatible(arr,n,chosen,rng){
   return out;
 }
 export function exerciseGroupId(e){return e&&e.sub?e.sub:e&&e.group;}
-function groupPool(id){return LIB.filter(e=>exerciseGroupId(e)===id);}
+function groupPool(lib,hidden,id){return lib.filter(e=>exerciseGroupId(e)===id&&!hidden.has(e.id));}
 function compatibleCapacity(pool){
   const exclusive=new Set();let capacity=0;
   pool.forEach(e=>{
@@ -100,6 +104,7 @@ function compatibleCapacity(pool){
 
 /* ---------- Supersets ---------- */
 function pairKey(a,b){return [a,b].sort().join('|');}
+function patternFamily(pattern){return PATTERNS[pattern]?PATTERNS[pattern].family:pattern;}
 function supersetLimit(dur){return dur==='15'?2:dur==='30'?2:3;}
 function supersetScore(a,b){
   if(!a||!b||a.sets!==b.sets)return -1;
@@ -108,6 +113,7 @@ function supersetScore(a,b){
 
   const groups=pairKey(a.group,b.group);
   const patterns=pairKey(am.pattern,bm.pattern);
+  const families=pairKey(patternFamily(am.pattern),patternFamily(bm.pattern));
   const opposedLegs=patterns==='knee_extension|knee_flexion';
   if(a.group===b.group&&!opposedLegs)return -1;
 
@@ -130,9 +136,9 @@ function supersetScore(a,b){
   else if(['bis|legs','legs|tris'].includes(groups)&&a.t==='i'&&b.t==='i'&&am.fatigue==='low'&&bm.fatigue==='low')score=22;
   if(!score)return -1;
 
-  if(patterns==='horizontal_press|horizontal_pull')score+=12;
-  if(patterns==='vertical_press|vertical_pull')score+=10;
-  if(patterns==='curl|triceps')score+=10;
+  if(families==='horizontal_press|horizontal_pull')score+=12;
+  if(families==='vertical_press|vertical_pull')score+=10;
+  if(families==='curl|triceps')score+=10;
   if(opposedLegs)score+=10;
   if(a.t==='i'&&b.t==='i')score+=8;
   if(am.equipment===bm.equipment){
@@ -179,12 +185,12 @@ function organizeSupersets(items,dur){
 }
 
 /* ---------- Allocation ---------- */
-function allocateGroupCounts(on,total,pctTotal,groups,rng){
-  const alloc=on.map(g=>({
-    g,n:1,capacity:compatibleCapacity(groupPool(g.id)),
-    quota:groups[g.id].pct/pctTotal*total,
-    tie:rng()
-  }));
+function allocateGroupCounts(on,total,pctTotal,groups,rng,poolOf){
+  const alloc=on.map(g=>{
+    const capacity=compatibleCapacity(poolOf(g.id));
+    // A group with nothing selectable (all hidden) takes no slot.
+    return {g,n:Math.min(1,capacity),capacity,quota:groups[g.id].pct/pctTotal*total,tie:rng()};
+  });
   let used=alloc.reduce((sum,a)=>sum+a.n,0);
   while(used<total){
     const candidates=alloc.filter(a=>a.n<a.capacity);
@@ -198,13 +204,17 @@ function buildItem(e,dur,feel,last){
   const sets=schemeFor(e,dur,feel);
   const w=e.bw?null:suggestWeight(e,feel,last);
   return {id:e.id,name:e.name,reps:suggestReps(e,last),unit:e.unit||'lb',loadStyle:e.loadStyle||null,bw:!!e.bw,sets,w,note:e.note||null,t:e.t,
-    group:exerciseGroupId(e),pairMeta:PAIR_META[e.id]||{equipment:'other',pattern:'other',fatigue:e.t==='c'?'moderate':'low'}};
+    group:exerciseGroupId(e),pairMeta:{equipment:e.equipment,pattern:e.pattern,fatigue:e.fatigue},
+    ...(e.loadType?{loadType:e.loadType}:{})};
 }
 
 /* ---------- Generate ---------- */
 export function generateWorkout(request,ctx){
   const {dur,feel,groups,opts}=request;
   const {last}=ctx;
+  const lib=ctx.lib||LIB;
+  const hidden=new Set(ctx.hidden||[]);
+  const poolOf=id=>groupPool(lib,hidden,id);
   const rng=mulberry32(request.seed);
   const on=GROUPS.filter(g=>groups[g.id].on && groups[g.id].pct>0);
   const pctTotal=on.reduce((a,g)=>a+groups[g.id].pct,0);
@@ -214,12 +224,12 @@ export function generateWorkout(request,ctx){
   // Every selection receives one exercise. Remaining slots follow the requested
   // percentages and respect each group's distinct exercise-library capacity.
   const mainTotal=Math.max(on.length,total);
-  const alloc=allocateGroupCounts(on,mainTotal,pctTotal,groups,rng);
+  const alloc=allocateGroupCounts(on,mainTotal,pctTotal,groups,rng,poolOf);
 
   const mainItems=[];
   alloc.forEach(a=>{
     const gid=a.g.id;
-    const pool=groupPool(gid);
+    const pool=poolOf(gid);
     const poolC=pool.filter(e=>e.t==='c');
     const poolI=pool.filter(e=>e.t==='i');
     const chosen=[];
