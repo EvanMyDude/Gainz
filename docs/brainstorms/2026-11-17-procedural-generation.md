@@ -286,3 +286,9 @@ Seeds 1 to 2000 per configuration, warm-up on, supersets off unless stated.
 | Chest 50 / back 50, 30 min | exercises shared with the previous generation | 20% |
 | Four primary groups, 60 min, supersets on | workouts with at least one superset | 89.8% |
 | All of the above | workouts the linter flags | 0 of 50000 |
+
+## Added after Generation Core v1
+
+- **Load steps.** `EQUIPMENT` in `js/exercises.js` gives each equipment type a load step (stacks 12 lb, free weights 5 lb), with a per-exercise `step` override for plate-loaded machines. A steady day shows the recorded load as recorded; Good and Bad nudge it and snap to a real step without ever moving the wrong way. This was the only part of Pass 2 that was built.
+- **Swap and lock.** `request.keep` (lifts to build around) and `request.avoid` (ids to pass over this time) let the generator rebuild part of a workout. `swapExercise()` refills one slot with everything else kept, so the replacement serves the same purpose. Locked lifts carry over on Regenerate while the settings are unchanged. Set sharing between muscle groups is now deterministic so untouched lifts keep their sets.
+- Still open from the roadmap: per-set plans, RIR and rest (rest of Pass 2); Copy-time memory; adding or removing a set; a visible check status.

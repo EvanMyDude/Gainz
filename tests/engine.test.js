@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DURATIONS, MINUTES_PER_SET, generateWorkout, notesText, planBudget } from '../js/engine.js';
+import { DURATIONS, MINUTES_PER_SET, generateWorkout, notesText, planBudget, swapExercise } from '../js/engine.js';
 import { MAX_SETS, MIN_SETS, lintWorkout } from '../js/rules.js';
 import { EQUIPMENT, GROUPS, LIB } from '../js/exercises.js';
 import { NOTES_DATE, expandGroups, mainItems } from './helpers.js';
@@ -306,4 +306,167 @@ test('a generated workout formats without gaps', () => {
   assert.match(text, /^11\/17\nWARM-UP\n/);
   assert.match(text, /\nMAIN WORK\n/);
   assert.ok(!/undefined|NaN|null/.test(text), text);
+});
+
+/* ---------- Locking and swapping ---------- */
+const ALL_OPTS = { warm: true, cooldown: true, cardio: true, superset: false };
+const requestFor = (c, extra = {}) => ({ dur: c.dur, feel: c.feel, groups: expandGroups(c.mix, groupIds), opts: NO_OPTS, seed: 1, ...extra });
+const CTX = { last: {}, date: NOTES_DATE };
+const FEASIBLE = CONFIGS.filter(c => !infeasible(c));
+const otherSections = workout => workout.sections.filter(section => section.title !== 'Main work');
+
+test('how sets are shared between muscle groups does not depend on the seed', () => {
+  for (const c of FEASIBLE) {
+    const split = seed => generateWorkout(requestFor(c, { seed }), CTX).split.map(part => `${part.id}:${part.count}x${part.sets}`).join();
+    for (let seed = 2; seed <= 12; seed++) assert.equal(split(seed), split(1), label(c, seed));
+  }
+});
+
+test('items remember the slot they fill', () => {
+  const items = mainItems(generate({ chest: 50, back: 50 }));
+  for (const group of ['chest', 'back']) {
+    assert.deepEqual(inGroup(items, group).map(item => item.slot).sort(), inGroup(items, group).map((item, index) => index));
+  }
+});
+
+test('locked exercises survive regeneration with their sets, weights and lock, and the rest stays valid', () => {
+  let varied = 0;
+  for (const c of FEASIBLE) {
+    const first = generateWorkout(requestFor(c), CTX);
+    // Lock every other lift, with an edited weight on each.
+    const keep = mainItems(first).filter((item, index) => index % 2 === 0)
+      .map(item => ({ ...item, locked: true, w: item.w === null ? null : 999 }));
+    const lineups = new Set();
+    for (let seed = 2; seed <= 16; seed++) {
+      const next = generateWorkout(requestFor(c, { seed, keep }), CTX);
+      const items = mainItems(next);
+      for (const kept of keep) {
+        const found = items.find(item => item.id === kept.id);
+        assert.ok(found, `${label(c, seed)}: ${kept.id} was dropped`);
+        assert.equal(found.sets, kept.sets, `${label(c, seed)}: ${kept.id} sets`);
+        assert.equal(found.w, kept.w, `${label(c, seed)}: ${kept.id} weight`);
+        assert.equal(found.locked, true);
+      }
+      assert.deepEqual(next.notes, [], `${label(c, seed)}: ${JSON.stringify(next.notes)}`);
+      assert.deepEqual(lintWorkout(next), [], label(c, seed));
+      assert.equal(next.sets, first.sets, label(c, seed));
+      assert.equal(items.length, mainItems(first).length, label(c, seed));
+      lineups.add(items.map(item => item.id).sort().join());
+    }
+    if (lineups.size > 1) varied++;
+  }
+  assert.ok(varied > FEASIBLE.length / 2, `${varied} of ${FEASIBLE.length} configurations varied around their locks`);
+});
+
+test('kept exercises that are unknown, ruled out or from a deselected group are ignored', () => {
+  const first = generate({ chest: 50, back: 50 });
+  const [a, b, c] = mainItems(first);
+  const keep = [a, b, c, { id: 'nosuchlift', slot: 0, sets: 3 }, { ...mainItems(generate({ legs: 100 }))[0] }];
+  const next = generateWorkout({ dur: '60', feel: 'ok', groups: expandGroups({ chest: 50, back: 50 }, groupIds), opts: NO_OPTS, seed: 5, keep, avoid: [a.id] },
+    { ...CTX, hidden: [b.id] });
+  const ids = mainItems(next).map(item => item.id);
+  assert.ok(!ids.includes(a.id));          // ruled out for this run
+  assert.ok(ids.includes(b.id));           // hiding governs new picks; the caller chose to keep this one
+  assert.ok(ids.includes(c.id));
+  assert.ok(mainItems(next).every(item => ['chest', 'back'].includes(item.group)));
+  assert.deepEqual(next.notes, []);
+});
+
+test('a swap leaves alone a lift that was hidden after the workout was built', () => {
+  const request = { dur: '60', feel: 'ok', groups: expandGroups({ chest: 50, back: 50 }, groupIds), opts: NO_OPTS, seed: 4 };
+  const workout = generateWorkout(request, CTX);
+  const [hiddenLater, target] = mainItems(workout);
+  const next = swapExercise(workout, target.id, { ...request, seed: 5 }, { ...CTX, hidden: [hiddenLater.id] });
+  assert.ok(next);
+  const ids = mainItems(next).map(item => item.id);
+  assert.ok(ids.includes(hiddenLater.id) && !ids.includes(target.id));
+  assert.deepEqual(next.notes, []);
+  // and a hidden lift can itself be swapped out
+  const gone = swapExercise(workout, hiddenLater.id, { ...request, seed: 6 }, { ...CTX, hidden: [hiddenLater.id] });
+  assert.ok(gone && !mainItems(gone).some(item => item.id === hiddenLater.id));
+});
+
+test('swapping replaces exactly one exercise and leaves the rest of the workout alone', () => {
+  let swaps = 0, unavailable = 0;
+  const forced = {};   // swaps where the only replacements left bend a rule, by rule
+  for (const c of FEASIBLE) for (const superset of [false, true]) {
+    if (superset && c.feel === 'bad') continue;
+    const request = requestFor(c, { seed: 3, opts: { ...ALL_OPTS, superset } });
+    const workout = generateWorkout(request, CTX);
+    mainItems(workout).forEach(item => { if (item.w !== null) item.w = 777; });   // weights the user edited
+    for (const target of mainItems(workout)) {
+      const next = swapExercise(workout, target.id, { ...request, seed: 99 }, CTX);
+      if (!next) { unavailable++; continue; }
+      swaps++;
+      const where = `${label(c, 3)} swapping ${target.id}`;
+      const before = mainItems(workout), after = mainItems(next);
+      const arrived = after.filter(item => !before.some(old => old.id === item.id));
+      assert.equal(after.length, before.length, where);
+      assert.equal(arrived.length, 1, where);
+      assert.ok(!after.some(item => item.id === target.id), where);
+      assert.equal(arrived[0].group, target.group, where);
+      assert.equal(arrived[0].sets, target.sets, where);
+      for (const old of before.filter(item => item.id !== target.id)) {
+        const kept = after.find(item => item.id === old.id);
+        assert.equal(kept.sets, old.sets, `${where}: ${old.id} sets`);
+        assert.equal(kept.w, old.w, `${where}: ${old.id} weight`);
+      }
+      assert.deepEqual(otherSections(next), otherSections(workout), where);
+      assert.equal(next.date, workout.date);
+      assert.equal(next.sets, workout.sets, where);
+      // The lifts swapped away are not alternatives the linter may ask for. When
+      // the only replacement left bends a rule, the workout says so.
+      const problems = lintWorkout(next, { hidden: next.swapped }).map(problem => problem.rule);
+      assert.deepEqual(next.notes.map(note => note.rule).sort(), problems.sort(), where);
+      problems.forEach(rule => { forced[rule] = (forced[rule] || 0) + 1; });
+      assert.ok(next.swapped.includes(target.id), where);
+    }
+  }
+  assert.ok(swaps > 1000, `${swaps} swaps checked`);
+  // Only the high-fatigue cap can be forced, and only in long single-group sessions.
+  assert.deepEqual(Object.keys(forced), ['fatigue'], JSON.stringify(forced));
+  assert.ok(forced.fatigue < swaps / 100, `${forced.fatigue} of ${swaps} swaps were forced`);
+  console.log(`      swaps checked: ${swaps}, no alternative: ${unavailable}, forced past the fatigue cap: ${forced.fatigue}`);
+  assert.ok(unavailable < swaps / 10, `${unavailable} slots had no alternative`);
+});
+
+test('a swap fills the same purpose', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const request = { dur: '60', feel: 'ok', groups: expandGroups({ chest: 50, shoulders: 30, tris: 20 }, groupIds), opts: NO_OPTS, seed };
+    const workout = generateWorkout(request, CTX);
+    const lead = mainItems(workout).find(item => item.group === 'chest' && item.slot === 0);
+    const next = swapExercise(workout, lead.id, { ...request, seed: seed + 1000 }, CTX);
+    const replacement = mainItems(next).find(item => item.group === 'chest' && item.slot === 0);
+    assert.ok(['horizontal_press', 'incline_press'].includes(replacement.pairMeta.pattern), `seed ${seed}: ${replacement.id}`);
+    assert.notEqual(replacement.id, lead.id);
+  }
+});
+
+test('repeated swaps of one slot walk through the alternatives before repeating', () => {
+  const request = { dur: '30', feel: 'ok', groups: expandGroups({ bis: 100 }, groupIds), opts: NO_OPTS, seed: 1 };
+  let workout = generateWorkout(request, CTX);
+  const curls = LIB.filter(e => e.sub === 'bis').length;
+  const slot = mainItems(workout)[0].slot;
+  const current = () => mainItems(workout).find(item => item.slot === slot).id;
+  const seen = [current()];
+  // Every curl not already in the workout can take the slot once before any repeats.
+  const fresh = curls - mainItems(workout).length;
+  for (let i = 0; i < fresh; i++) {
+    workout = swapExercise(workout, current(), { ...request, seed: 50 + i }, CTX);
+    assert.ok(workout, `swap ${i + 1} found nothing`);
+    assert.ok(!seen.includes(current()), `swap ${i + 1} repeated ${current()}`);
+    seen.push(current());
+  }
+  // With the alternatives used up, the cycle starts again rather than failing.
+  const again = swapExercise(workout, current(), { ...request, seed: 99 }, CTX);
+  assert.ok(again);
+  assert.notEqual(mainItems(again).find(item => item.slot === slot).id, current());
+});
+
+test('a slot with no alternative cannot be swapped', () => {
+  const bench = LIB.find(e => e.id === 'bench');
+  const request = { dur: '15', feel: 'ok', groups: expandGroups({ chest: 100 }, groupIds), opts: NO_OPTS, seed: 1 };
+  const workout = generateWorkout(request, { ...CTX, lib: [bench] });
+  assert.equal(swapExercise(workout, 'bench', { ...request, seed: 2 }, { ...CTX, lib: [bench] }), null);
+  assert.equal(swapExercise(workout, 'notinworkout', request, CTX), null);
 });

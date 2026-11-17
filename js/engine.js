@@ -2,7 +2,9 @@
 // Everything a workout depends on arrives through `request` and `ctx`, so the
 // same request and seed always produce the same workout.
 //
-//   request = { dur, feel, groups: {id: {on, pct}}, opts: {warm, cooldown, cardio, superset}, seed }
+//   request = { dur, feel, groups: {id: {on, pct}}, opts: {warm, cooldown, cardio, superset}, seed,
+//               keep?: [item] lifts from an earlier workout to build around,
+//               avoid?: [exerciseId] not to pick this time }
 //   ctx     = { last: {exerciseId: {w, reps}}, date: ISO string,
 //               hidden?: [exerciseId] never to select, lib?: replacement library (tests) }
 //
@@ -11,7 +13,7 @@
 // loads -> optional supersets -> lint. A few seeded candidates are built and
 // the first one that passes every rule is returned.
 import { LIB, EQUIPMENT, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
-import { MIN_SETS, MAX_SETS, PATTERN_REPEAT_LIMIT, exerciseGroupId, patternFamily, canShareWorkout,
+import { MIN_SETS, MAX_SETS, PATTERN_REPEAT_LIMIT, COVERAGE, exerciseGroupId, patternFamily, canShareWorkout,
   compatibleCapacity, hingeOk, pressCounts, pressStackOk, fatigueCap, highFatigueCount,
   orderViolations, lintWorkout } from './rules.js';
 export { exerciseGroupId };
@@ -183,12 +185,12 @@ function groupPool(lib,hidden,id){return lib.filter(e=>exerciseGroupId(e)===id&&
 // Splits the set budget across the selected groups by their percentages. Every
 // group gets at least MIN_SETS; a group stops at what its exercises can hold.
 // The shortfall, if any, is reported instead of being hidden.
-function planGroups(on,groups,budget,poolOf,rng){
+function planGroups(on,groups,budget,poolOf){
   const pctTotal=on.reduce((sum,g)=>sum+groups[g.id].pct,0);
   const plan=on.map(g=>{
     const capacity=compatibleCapacity(poolOf(g.id));
     const maxSets=capacity*MAX_SETS;
-    return {g,capacity,maxSets,pct:groups[g.id].pct,sets:Math.min(MIN_SETS,maxSets),tie:rng()};
+    return {g,capacity,maxSets,pct:groups[g.id].pct,sets:Math.min(MIN_SETS,maxSets)};
   });
   const floor=plan.reduce((sum,p)=>sum+p.sets,0);
   const target=Math.max(budget,floor);
@@ -197,7 +199,8 @@ function planGroups(on,groups,budget,poolOf,rng){
   while(used<target){
     const open=plan.filter(p=>p.sets<p.maxSets);
     if(!open.length)break;
-    open.sort((a,b)=>(b.quota-b.sets)-(a.quota-a.sets)||a.tie-b.tie);
+    // Equal claims go to the group listed first, so the same request always splits the same way.
+    open.sort((a,b)=>(b.quota-b.sets)-(a.quota-a.sets));
     open[0].sets++;used++;
   }
   // Up to four sets is one exercise; beyond that, about three and a half sets each.
@@ -278,11 +281,23 @@ function openSlots(plan){
 // Fills every slot in priority order. Hard rules narrow the candidates first,
 // then the slot's patterns, then a weighted draw chooses among what is left. A rule is
 // only relaxed when keeping it would leave the slot empty.
-function fillSlots(plan,poolOf,feel,rng){
+function fillSlots(plan,poolOf,feel,rng,keep,findKept){
   const slots=openSlots(plan);
   const cap=fatigueCap(slots.length,feel);
-  const picks=[];
+  const picks=[],taken=new Set();
+  // Kept lifts return to their slots first, so every rule below sees them.
+  for(const item of keep){
+    const e=findKept(item.id);
+    const p=e&&plan.find(candidate=>candidate.g.id===exerciseGroupId(e));
+    if(!p||picks.some(pick=>pick.e===e))continue;     // unknown, ruled out, or its group is no longer selected
+    const free=slots.filter(slot=>slot.p===p&&!taken.has(slot));
+    const slot=free.find(candidate=>candidate.k===item.slot)||free[0];
+    if(!slot)continue;                                // more kept lifts than the group has room for
+    taken.add(slot);
+    picks.push({e,p,k:slot.k,kept:item});
+  }
   for(const slot of slots){
+    if(taken.has(slot))continue;
     const all=picks.map(pick=>pick.e);
     const mine=picks.filter(pick=>pick.p===slot.p).map(pick=>pick.e);
     const used=pattern=>mine.filter(e=>e.pattern===pattern).length;
@@ -293,6 +308,14 @@ function fillSlots(plan,poolOf,feel,rng){
     keep(e=>pressStackOk([...all,e]));
     keep(e=>e.fatigue!=='high'||highFatigueCount(all)<cap);
     keep(e=>used(e.pattern)<PATTERN_REPEAT_LIMIT);
+    // When the group has only as many open slots as essentials still missing,
+    // this slot must supply one of them, whatever its own list says.
+    const rule=COVERAGE[slot.p.g.id];
+    if(rule&&slot.p.count>=rule.min){
+      const missing=rule.need.filter(patterns=>!mine.some(e=>patterns.includes(e.pattern))&&candidates.some(e=>patterns.includes(e.pattern)));
+      const openHere=slots.filter(other=>other.p===slot.p).length-mine.length;
+      if(missing.length&&openHere<=missing.length)keep(e=>missing.some(patterns=>patterns.includes(e.pattern)));
+    }
     if(slot.patterns){
       keep(e=>slot.patterns.includes(e.pattern));
       if(slot.ordered){
@@ -315,12 +338,18 @@ function fillSlots(plan,poolOf,feel,rng){
   }
   return picks;
 }
-// Shares a group's sets among its exercises; compounds and earlier slots get the extra set.
+// Shares a group's sets among its exercises; compounds and earlier slots get the
+// extra set. A kept lift keeps the sets it had, and the others share the rest.
 function assignSets(plan,picks){
+  const clamp=sets=>Math.min(MAX_SETS,Math.max(MIN_SETS,sets));
   plan.forEach(p=>{
-    const mine=picks.filter(pick=>pick.p===p).sort((a,b)=>(a.e.t==='c'?0:1)-(b.e.t==='c'?0:1)||a.k-b.k);
+    const all=picks.filter(pick=>pick.p===p);
+    const kept=all.filter(pick=>pick.kept&&Number.isInteger(pick.kept.sets));
+    kept.forEach(pick=>{pick.sets=clamp(pick.kept.sets);});
+    const mine=all.filter(pick=>!kept.includes(pick)).sort((a,b)=>(a.e.t==='c'?0:1)-(b.e.t==='c'?0:1)||a.k-b.k);
     if(!mine.length)return;
-    const sets=Math.min(p.sets,mine.length*MAX_SETS);
+    const left=p.sets-kept.reduce((sum,pick)=>sum+pick.sets,0);
+    const sets=Math.min(Math.max(left,mine.length*MIN_SETS),mine.length*MAX_SETS);
     const base=Math.floor(sets/mine.length),extra=sets-base*mine.length;
     mine.forEach((pick,index)=>{pick.sets=base+(index<extra?1:0);});
   });
@@ -353,22 +382,31 @@ function sequence(plan,picks){
 }
 
 /* ---------- Generate ---------- */
-function buildItem(e,sets,feel,last){
+function buildItem(e,sets,slot,feel,last){
   const w=e.bw?null:suggestWeight(e,feel,last);
   return {id:e.id,name:e.name,reps:suggestReps(e,last),unit:e.unit||'lb',loadStyle:e.loadStyle||null,bw:!!e.bw,sets,w,note:e.note||null,t:e.t,
-    group:exerciseGroupId(e),pairMeta:{equipment:e.equipment,pattern:e.pattern,fatigue:e.fatigue},
+    group:exerciseGroupId(e),slot,pairMeta:{equipment:e.equipment,pattern:e.pattern,fatigue:e.fatigue},
     ...(e.loadType?{loadType:e.loadType}:{})};
+}
+// A kept lift carries over as it was (edited weight, lock) apart from its place in the new lineup.
+function carryItem(previous,sets,slot){
+  const {supersetId,supersetOrder,...rest}=previous;
+  return {...rest,sets,slot};
 }
 function buildCandidate(request,ctx,lib,hidden,rng){
   const {dur,feel,groups,opts}=request;
   const {last}=ctx;
-  const poolOf=id=>groupPool(lib,hidden,id);
+  const unavailable=new Set([...hidden,...(request.avoid||[])]);
+  const poolOf=id=>groupPool(lib,unavailable,id);
   const on=GROUPS.filter(g=>groups[g.id].on && groups[g.id].pct>0);
   const budget=planBudget(dur,feel);
-  const {plan,notes}=planGroups(on,groups,budget,poolOf,rng);
-  const picks=fillSlots(plan,poolOf,feel,rng);
+  const {plan,notes}=planGroups(on,groups,budget,poolOf);
+  // The caller decides what to keep; hiding only governs new picks.
+  const findKept=id=>lib.find(e=>e.id===id&&!(request.avoid||[]).includes(id));
+  const picks=fillSlots(plan,poolOf,feel,rng,request.keep||[],findKept);
   assignSets(plan,picks);
-  const entries=sequence(plan,picks).map(pick=>({e:pick.e,item:buildItem(pick.e,pick.sets,feel,last)}));
+  const entries=sequence(plan,picks).map(pick=>({e:pick.e,
+    item:pick.kept?carryItem(pick.kept,pick.sets,pick.k):buildItem(pick.e,pick.sets,pick.k,feel,last)}));
   const wantsSupersets=opts.superset&&feel!=='bad';
   const organized=wantsSupersets?arrangeSupersets(entries,DURATIONS[dur].supersets):{items:entries.map(entry=>entry.item),pairs:[]};
   const activeGroupIds=on.map(group=>group.id);
@@ -412,13 +450,47 @@ export function generateWorkout(request,ctx){
   let best=null;
   for(let attempt=0;attempt<ATTEMPTS;attempt++){
     const workout=buildCandidate(request,ctx,lib,hidden,mulberry32((request.seed+attempt*0x9E3779B9)>>>0));
-    const problems=lintWorkout(workout,{lib,hidden:[...hidden]})
+    // Lifts ruled out for this run are not alternatives the linter may ask for,
+    // and a lift the caller chose to keep is not a hidden-exercise violation.
+    const keptIds=(request.keep||[]).map(item=>item.id);
+    const ruledOut=[...hidden,...(request.avoid||[])].filter(id=>!keptIds.includes(id));
+    const problems=lintWorkout(workout,{lib,hidden:ruledOut})
       .filter(problem=>!workout.notes.some(note=>note.rule===problem.rule));
     if(!best||problems.length<best.problems.length)best={workout,problems};
     if(!problems.length)break;
   }
   best.workout.notes=[...best.workout.notes,...best.problems];
   return best.workout;
+}
+
+// Replaces one exercise by refilling its slot: every other lift is kept and
+// the old one is ruled out, so the slot's own patterns and the session rules
+// choose the replacement. Warm-up, cardio and cooldown are left as they were.
+// Returns null when nothing else can take the slot.
+export function swapExercise(workout,id,request,ctx){
+  const isMain=section=>section.title==='Main work';
+  const before=(workout.sections.find(isMain)||{items:[]}).items;
+  if(!before.some(item=>item.id===id))return null;
+  const others=before.filter(item=>item.id!==id);
+  const attempt=avoid=>{
+    const next=generateWorkout({...request,keep:others,avoid},ctx);
+    const after=next.sections.find(isMain).items;
+    const arrived=after.filter(item=>!before.some(old=>old.id===item.id));
+    const intact=after.length===before.length&&others.every(old=>after.some(item=>item.id===old.id));
+    return intact&&arrived.length===1?next:null;
+  };
+  // Lifts already swapped out of this workout are passed over, so repeated
+  // swaps walk through the alternatives. Once those run out, start over.
+  const seen=workout.swapped||[];
+  let avoid=[...seen,id],next=attempt(avoid);
+  if(!next&&seen.length){avoid=[id];next=attempt(avoid);}
+  if(!next)return null;
+  const main=next.sections.find(isMain);
+  const noteStillApplies=workout.formNote&&main.items.some(item=>item.name===workout.formNote.name);
+  return {...next,date:workout.date,
+    sections:workout.sections.map(section=>isMain(section)?main:section),
+    formNote:noteStillApplies?workout.formNote:next.formNote,
+    swapped:avoid};
 }
 
 /* ---------- Apple Notes text ---------- */

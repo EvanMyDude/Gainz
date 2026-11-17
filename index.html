@@ -139,8 +139,12 @@ header.top p{color:var(--text2);font-size:14px;}
 .ex-name{font-weight:700;font-size:15px;}
 .ex-scheme{color:var(--text2);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;}
 .ex-note{color:var(--text2);font-size:12.5px;margin-top:4px;font-style:italic;}
-.ex-actions{display:flex;justify-content:flex-end;margin-top:10px;}
-.ex-hide,.unhide-btn{border:1px solid var(--border);background:none;color:var(--text2);font:inherit;font-size:12px;
+.ex-actions{display:flex;gap:8px;margin-top:10px;}
+.ex-actions .ex-hide{margin-left:auto;}
+.ex-btn:disabled{opacity:.4;cursor:not-allowed;}
+.ex.is-locked{border-color:var(--blue);}
+.ex.is-locked .ex-lock{color:var(--blue);border-color:var(--blue);background:var(--blueSoft);}
+.ex-btn,.unhide-btn{border:1px solid var(--border);background:none;color:var(--text2);font:inherit;font-size:12px;
   font-weight:600;border-radius:8px;padding:6px 12px;min-height:36px;cursor:pointer;white-space:nowrap;}
 .ex.is-hidden>:not(.ex-actions){opacity:.45;}
 .ex.is-hidden .ex-hide{color:var(--blue);border-color:var(--blue);}
@@ -311,7 +315,7 @@ canvas{width:100%;max-width:100%;display:block;}
 // Exercise data and workout generation live in js/. This script owns state,
 // storage, rendering and history.
 import { LIB, GROUPS, PRIMARY_GROUPS, TARGET_GROUPS } from './js/exercises.js';
-import { DURATIONS, generateWorkout, notesText, loadStyleFor, exerciseGroupId } from './js/engine.js';
+import { DURATIONS, generateWorkout, swapExercise, notesText, loadStyleFor, exerciseGroupId } from './js/engine.js';
 
 const LEGACY_ACCESSORIES=[
   {parent:'chest',target:'tris'},
@@ -517,6 +521,9 @@ function savePrefs(){
 }
 let ST=hydrateST();
 let currentWorkout=null;
+let currentRequest=null;   // what produced currentWorkout, reused when swapping one exercise
+const mainWork=workout=>workout.sections.find(section=>section.title==='Main work').items;
+const newSeed=()=>Math.floor(Math.random()*4294967296);
 
 /* ---------- Helpers ---------- */
 function topReps(r){ // parse top of a rep range like '5-8' -> 8, 'AMRAP'->null
@@ -587,22 +594,45 @@ function generate(){
   const balancedBeforeGenerate=pctTotal<100;
   if(balancedBeforeGenerate)balanceAllocation(true);
   const checked=id=>document.getElementById(id).checked;
+  // Locked lifts carry over while the settings are unchanged (any change clears the workout).
+  const locked=currentWorkout?mainWork(currentWorkout).filter(it=>it.locked&&!DB.hidden.includes(it.id)):[];
   const request={dur:ST.dur,feel:ST.feel,groups:ST.groups,
     opts:{warm:checked('optWarm'),cooldown:checked('optCooldown'),cardio:checked('optCardio'),superset:checked('optSuperset')},
-    seed:Math.floor(Math.random()*4294967296)};
+    seed:newSeed(),keep:locked};
   const workout=generateWorkout(request,{last:DB.last,hidden:DB.hidden,date:new Date().toISOString()});
-  if(!workout.sections.find(section=>section.title==='Main work').items.length){
+  if(!mainWork(workout).length){
     toast('Every exercise for this selection is hidden');
     return;
   }
   currentWorkout=workout;
+  currentRequest=request;
   renderOutput();
   if(request.opts.superset&&ST.feel!=='bad'){
     const pairs=currentWorkout.supersets.length;
     const prefix=balancedBeforeGenerate?'Balanced to 100% · ':'';
     if(pairs)toast(prefix+`Smart supersets ready — ${pairs} pair${pairs===1?'':'s'}`);
     else toast(prefix+'No compatible superset pair today — workout kept standard');
+  }else if(locked.length){
+    toast(`Rebuilt around ${locked.length} locked lift${locked.length===1?'':'s'}`);
   }
+}
+// Replace one exercise with another that fills the same slot; the rest stays put.
+function swapOne(id){
+  if(!currentWorkout||!currentRequest)return;
+  const next=swapExercise(currentWorkout,id,{...currentRequest,seed:newSeed()},
+    {last:DB.last,hidden:DB.hidden,date:currentWorkout.date});
+  if(!next){toast(`Nothing else fits where ${exerciseName(id)} is`);return;}
+  const arrived=mainWork(next).find(it=>!mainWork(currentWorkout).some(old=>old.id===it.id));
+  currentWorkout=next;
+  renderOutput({scroll:false});
+  toast(`Swapped ${exerciseName(id)} for ${arrived.name}`);
+}
+function toggleLock(id){
+  const item=currentWorkout&&mainWork(currentWorkout).find(it=>it.id===id);
+  if(!item)return;
+  item.locked=!item.locked;
+  syncCards();
+  toast(item.locked?`Locked ${item.name}: Regenerate will keep it`:`Unlocked ${item.name}`);
 }
 
 /* ---------- Render output ---------- */
@@ -612,7 +642,7 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
   }
   const unit=uiLoadUnit(it);
   const hidden=DB.hidden.includes(it.id);
-  let html=`<div class="ex${hidden?' is-hidden':''}" data-ex="${it.id}"><div class="ex-head"><span class="ex-name">`+
+  let html=`<div class="ex${hidden?' is-hidden':''}${it.locked?' is-locked':''}" data-ex="${it.id}"><div class="ex-head"><span class="ex-name">`+
     `${code?`<span class="superset-code">${code}</span>`:''}${it.name}</span>`+
     `<span class="ex-scheme">${it.sets} \u00D7 ${it.reps}</span></div>`;
   if(it.note)html+=`<div class="ex-note">${it.note}</div>`;
@@ -624,12 +654,20 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
       html+=`<div class="setpill"><input type="number" aria-label="${it.name} set ${s+1} weight" data-si="${sectionIndex}" data-ii="${itemIndex}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
     }
   }
-  return html+`</div><div class="ex-actions">${hideButtonHtml(it.id,it.name,hidden)}</div></div>`;
+  return html+`</div><div class="ex-actions">${cardActionsHtml(it,hidden)}</div></div>`;
+}
+// Lock and Swap act on this workout; Hide is a standing preference.
+function cardActionsHtml(it,hidden){
+  const name=escapeHtml(it.name);
+  return `<button type="button" class="ex-btn ex-lock" data-lock="${it.id}" aria-pressed="${!!it.locked}" ${hidden?'disabled ':''}`+
+    `aria-label="${it.locked?'Unlock':'Lock'} ${name}">${it.locked?'\uD83D\uDD12 Locked':'Lock'}</button>`+
+    `<button type="button" class="ex-btn" data-swap="${it.id}" aria-label="Swap ${name} for another exercise">\u21C4 Swap</button>`+
+    hideButtonHtml(it.id,it.name,hidden);
 }
 
 /* ---------- Hidden exercises ---------- */
 function hideButtonHtml(id,name,hidden){
-  return `<button type="button" class="ex-hide" data-hide="${id}" aria-pressed="${hidden}" `+
+  return `<button type="button" class="ex-btn ex-hide" data-hide="${id}" aria-pressed="${hidden}" `+
     `aria-label="${hidden?'Show':'Hide'} ${escapeHtml(name)} in future workouts">${hidden?'Hidden · Undo':'Hide'}</button>`;
 }
 function exerciseName(id){
@@ -640,17 +678,26 @@ function setHidden(id,hide){
   DB.hidden=DB.hidden.filter(other=>other!==id);
   if(hide)DB.hidden.push(id);
   save(DB);
+  // A hidden lift cannot stay locked.
+  const item=hide&&currentWorkout&&mainWork(currentWorkout).find(it=>it.id===id);
+  if(item)item.locked=false;
   syncHiddenUi();
-  toast(hide?`Hidden: ${exerciseName(id)} — regenerate to replace it`:`${exerciseName(id)} is back in rotation`);
+  toast(hide?`Hidden: ${exerciseName(id)}. Swap or regenerate to replace it`:`${exerciseName(id)} is back in rotation`);
 }
-// Reflect DB.hidden on the workout cards in place (no re-render, so the page
-// does not jump) and rebuild the list of hidden exercises.
-function syncHiddenUi(){
+// Reflect hidden and locked state on the workout cards in place (no re-render,
+// so the page does not jump and typed weights are kept).
+function syncCards(){
   document.querySelectorAll('#output .ex[data-ex]').forEach(card=>{
     const id=card.dataset.ex,hidden=DB.hidden.includes(id);
+    const item=currentWorkout&&mainWork(currentWorkout).find(it=>it.id===id);
     card.classList.toggle('is-hidden',hidden);
-    card.querySelector('.ex-actions').innerHTML=hideButtonHtml(id,exerciseName(id),hidden);
+    card.classList.toggle('is-locked',!!(item&&item.locked));
+    card.querySelector('.ex-actions').innerHTML=item?cardActionsHtml(item,hidden):hideButtonHtml(id,exerciseName(id),hidden);
   });
+}
+// Cards plus the list of hidden exercises.
+function syncHiddenUi(){
+  syncCards();
   const box=document.getElementById('hiddenBox');
   box.classList.toggle('hide',!DB.hidden.length);
   document.getElementById('hiddenCount').textContent=DB.hidden.length;
@@ -660,13 +707,17 @@ function syncHiddenUi(){
 }
 // One delegated listener covers the workout cards and the hidden list.
 document.getElementById('tab-gen').addEventListener('click',event=>{
+  const lock=event.target.closest('[data-lock]');
+  if(lock){toggleLock(lock.dataset.lock);return;}
+  const swap=event.target.closest('[data-swap]');
+  if(swap){swapOne(swap.dataset.swap);return;}
   const hide=event.target.closest('[data-hide]');
   if(hide){setHidden(hide.dataset.hide,!DB.hidden.includes(hide.dataset.hide));return;}
   const unhide=event.target.closest('[data-unhide]');
   if(unhide)setHidden(unhide.dataset.unhide,false);
 });
 
-function renderOutput(){
+function renderOutput({scroll=true}={}){
   const out=document.getElementById('output');
   out.classList.remove('hide');
   const w=currentWorkout;
@@ -706,7 +757,7 @@ function renderOutput(){
     `<button class="btn" id="logBtn" style="background:var(--green);">\u2713 Log as done</button></div>`+
     `<button class="btn ghost" id="regenBtn" style="margin-top:10px;min-height:44px;font-size:14px;">\u21BB Regenerate</button>`;
   out.innerHTML=html;
-  out.scrollIntoView({behavior:'smooth',block:'start'});
+  if(scroll)out.scrollIntoView({behavior:'smooth',block:'start'});
   // wire weight edits into currentWorkout
   out.querySelectorAll('input[type=number]').forEach(inp=>{
     inp.addEventListener('change',()=>{
