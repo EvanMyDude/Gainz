@@ -55,6 +55,8 @@ header.top p{color:var(--text2);font-size:14px;}
 .seg button{flex:1;min-width:80px;min-height:46px;border:1px solid var(--border);background:var(--soft);color:var(--text);
   font:inherit;font-weight:600;font-size:14px;border-radius:10px;cursor:pointer;transition:.12s;padding:6px 10px;}
 .seg button .sub{display:block;font-size:11px;font-weight:500;color:var(--text2);}
+#durSeg button{min-width:0;padding:6px 4px;}
+@media(max-width:560px){#durSeg button{font-size:13px;}#durSeg button .sub{font-size:10px;}}
 .seg button.on{border-color:var(--blue);background:var(--blueSoft);color:var(--blue);}
 .seg button.on .sub{color:var(--blue);}
 .seg.feel button.on[data-v="bad"]{border-color:var(--red);background:var(--redSoft);color:var(--red);}
@@ -231,6 +233,7 @@ canvas{width:100%;max-width:100%;display:block;}
       <div class="seg" id="durSeg">
         <button data-v="15" class="on">10–15 min<span class="sub">Quick hit</span></button>
         <button data-v="30">30 min<span class="sub">Standard</span></button>
+        <button data-v="45">45 min<span class="sub">Extended</span></button>
         <button data-v="60">1 hour<span class="sub">Full session</span></button>
       </div>
     </div>
@@ -308,7 +311,7 @@ canvas{width:100%;max-width:100%;display:block;}
 // Exercise data and workout generation live in js/. This script owns state,
 // storage, rendering and history.
 import { LIB, GROUPS, PRIMARY_GROUPS, TARGET_GROUPS } from './js/exercises.js';
-import { generateWorkout, notesText, loadStyleFor, exerciseGroupId } from './js/engine.js';
+import { DURATIONS, generateWorkout, notesText, loadStyleFor, exerciseGroupId } from './js/engine.js';
 
 const LEGACY_ACCESSORIES=[
   {parent:'chest',target:'tris'},
@@ -480,7 +483,7 @@ function freshST(){return JSON.parse(JSON.stringify(DEFAULT_ST));}
 function hydrateST(){
   const p=DB.prefs; if(!p) return freshST();
   const st=freshST();
-  if(['15','30','60'].includes(p.dur)) st.dur=p.dur;
+  if(Object.hasOwn(DURATIONS,p.dur)) st.dur=p.dur;
   GROUPS.forEach(g=>{
     const s=p.groups&&p.groups[g.id]; if(!s) return;
     const pct=Math.min(100,Math.max(0,Math.round((+s.pct||0)/5)*5));
@@ -490,7 +493,7 @@ function hydrateST(){
   // Keep the duration's group cap, and prefer the highest-percentage parent groups.
   const hasTargetPrefs=TARGET_GROUPS.some(g=>p.groups&&Object.prototype.hasOwnProperty.call(p.groups,g.id));
   if(!hasTargetPrefs){
-    const limit=st.dur==='15'?4:st.dur==='30'?6:8;
+    const limit=DURATIONS[st.dur].maxGroups;
     let active=GROUPS.filter(g=>st.groups[g.id].on).length;
     LEGACY_ACCESSORIES.filter(x=>{
       const old=p.groups&&p.groups[x.parent];
@@ -535,8 +538,8 @@ function historyLoadText(item,weight=item.w){
   if(style==='perSide')return `${weight} lb ea`;
   return item.unit&&item.unit!=='lb'?`${weight} ${item.unit}`:`${weight} lb`;
 }
-function maxGroupsForDuration(dur=ST.dur){return dur==='15'?4:dur==='30'?6:8;}
-function durationName(dur=ST.dur){return dur==='15'?'10–15 min':dur==='30'?'30 min':'1 hour';}
+function maxGroupsForDuration(dur=ST.dur){return DURATIONS[dur].maxGroups;}
+function durationName(dur=ST.dur){return DURATIONS[dur].label;}
 // Preserve the relative split while converting it to exact 5% steps totaling
 // 100. Largest-remainder rounding keeps the result deterministic and fair.
 function normalizePercentages(values,step=5){
@@ -669,9 +672,13 @@ function renderOutput(){
   const w=currentWorkout;
   let html='';
   if(w.split){
-    html+=`<div class="splitnote"><strong>Generated split</strong>`+
+    html+=`<div class="splitnote"><strong>${w.sets} sets \u00b7 about ${w.minutes} min of lifting</strong>`+
       w.split.map(s=>`<span class="splitchip"><span class="dot" style="background:${GC[s.id]}"></span>${s.name} ${s.pct}% \u2192 ${s.count} lift${s.count===1?'':'s'}</span>`).join('')+`</div>`;
   }
+  // Anything the request made impossible is stated rather than hidden.
+  (w.notes||[]).forEach(note=>{
+    html+=`<div class="formnote trim"><span class="ic">\u26a0\ufe0f</span><div><b>Heads up:</b> ${escapeHtml(note.text)}</div></div>`;
+  });
   if(w.supersets&&w.supersets.length){
     html+=`<div class="superset-summary">\u26A1 Smart supersets built: ${w.supersets.length} compatible pair${w.supersets.length===1?'':'s'}</div>`;
   }
@@ -832,7 +839,7 @@ function renderHistory(){
   else{
     sc.innerHTML=s.map(x=>{
       const d=new Date(x.date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-      const durLbl=x.dur==='15'?'10\u201315m':x.dur==='30'?'30m':x.dur==='60'?'1h':'';
+      const durLbl=DURATIONS[x.dur]?DURATIONS[x.dur].short:'';
       const items=Array.isArray(x.items)?x.items:[];
       const body=items.map(it=>{
         const load=it.bw?'':' @ '+historyLoadText(it);
@@ -1026,6 +1033,7 @@ function sampleGroups(k,weights,rng=Math.random){
 const RANDOM_COUNT_WEIGHTS={
   4:[2,5,4,1],
   6:[2,5,5,4,2,1],
+  7:[1,4,5,5,4,2,1],
   8:[1,4,5,5,4,2,1,1],
 };
 function randomGroupCount(max,rng=Math.random){

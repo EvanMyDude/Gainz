@@ -1,22 +1,25 @@
-// Prints how often the current generator produces known-bad workouts, as a
-// markdown table. Seeded, so the numbers are reproducible: `npm run baseline`.
-// This is a measurement, not a test; the selection rework is judged against it.
-import { readFileSync } from 'node:fs';
-import { generateWorkout } from '../../js/engine.js';
+// Prints how often the generator produces the defects measured before the
+// selection rework, as a markdown table. Seeded, so the numbers are
+// reproducible: `npm run baseline`. A measurement, not a test; the baseline it
+// is compared against is recorded in docs/brainstorms.
+import { DURATIONS, generateWorkout } from '../../js/engine.js';
+import { lintWorkout } from '../../js/rules.js';
 import { GROUPS, PATTERNS } from '../../js/exercises.js';
-import { expandGroups } from '../helpers.js';
+import { NOTES_DATE, expandGroups, mainItems } from '../helpers.js';
 
 const RUNS = 2000;
-const golden = JSON.parse(readFileSync(new URL('../fixtures/golden.json', import.meta.url), 'utf8'));
 const groupIds = GROUPS.map(group => group.id);
 const opts = { warm: true, cooldown: false, cardio: false, superset: false };
 
-function sample(mix, dur, feel = 'ok') {
+let generated = 0, flagged = 0;
+function sample(mix, dur, feel = 'ok', options = opts) {
   const groups = expandGroups(mix, groupIds);
   const runs = [];
   for (let seed = 1; seed <= RUNS; seed++) {
-    const workout = generateWorkout({ dur, feel, groups, opts, seed }, { last: golden.last, date: golden.notesDate });
-    runs.push(workout.sections.find(section => section.title === 'Main work').items);
+    const workout = generateWorkout({ dur, feel, groups, opts: options, seed }, { last: {}, date: NOTES_DATE });
+    generated++;
+    if (lintWorkout(workout).length) flagged++;
+    runs.push(mainItems(workout));
   }
   return runs;
 }
@@ -70,7 +73,7 @@ for (const dur of ['15', '30', '60']) {
   row('Back 50 / legs 50, 60 min', 'deadlift and RDL together', pct(runs, r => has(r, 'deadlift') && has(r, 'rdl')));
   row('Back 50 / legs 50, 60 min', 'isolation before a compound', pct(runs, isolationBeforeCompound));
 }
-for (const dur of ['15', '30', '60']) for (const feel of ['bad', 'ok', 'good']) {
+for (const dur of Object.keys(DURATIONS)) for (const feel of ['bad', 'ok', 'good']) {
   const runs = sample({ chest: 40, back: 40, bis: 20 }, dur, feel);
   row(`Chest 40 / back 40 / biceps 20, ${dur} min, ${feel}`, 'lifts / sets', `${mean(runs.map(r => r.length))} / ${mean(runs.map(sets))}`);
 }
@@ -84,6 +87,13 @@ for (const dur of ['15', '30', '60']) for (const feel of ['bad', 'ok', 'good']) 
   row('Chest 50 / back 50, 30 min', 'exercises shared with the previous generation', (overlap / (runs.length - 1) * 100).toFixed(0) + '%');
 }
 
-console.log(`Seeds 1 to ${RUNS} per configuration, warm-up on, supersets off.\n`);
+{
+  const mix = { chest: 25, back: 25, legs: 25, shoulders: 25 };
+  const runs = sample(mix, '60', 'ok', { ...opts, superset: true });
+  row('Four primary groups, 60 min, supersets on', 'workouts with at least one superset', pct(runs, r => r.some(i => i.supersetId)));
+}
+row('All of the above', 'workouts the linter flags', `${flagged} of ${generated}`);
+
+console.log(`Seeds 1 to ${RUNS} per configuration, warm-up on, supersets off unless stated.\n`);
 console.log('| Configuration | Metric | Value |\n|---|---|---|');
 console.log(rows.join('\n'));

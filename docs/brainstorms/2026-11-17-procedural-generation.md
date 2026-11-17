@@ -218,3 +218,71 @@ Seeds 1 to 2000 per configuration, warm-up on, supersets off.
 | Chest 40 / back 40 / biceps 20, 60 min, ok | lifts / sets | 9.0 / 32.0 |
 | Chest 40 / back 40 / biceps 20, 60 min, good | lifts / sets | 9.0 / 37.0 |
 | Chest 50 / back 50, 30 min | exercises shared with the previous generation | 54% |
+
+## Results at commit 3 (slot-based generator)
+
+Produced by `npm run baseline` after the selection rework. Compare with the baseline table above.
+
+What changed in the engine:
+- Time buys sets (`planBudget`, 2.25 minutes per set, one `MINUTES_PER_SET` constant). Exercise count follows from the set budget.
+- Each muscle group owns an ordered list of movement slots (`SLOTS` in `js/engine.js`); essentials are filled across all groups first.
+- Hard rules narrow the candidates, then a weighted draw chooses (every 10 score points doubles the chance).
+- Each group's lead lift comes first in order of emphasis, then other compounds, isolations, arms, calves and core.
+- `js/rules.js` holds the rules. The generator builds with them and `lintWorkout` checks with them.
+- A request the time or the library cannot satisfy is generated anyway and says so in `workout.notes`.
+
+Decisions that differ from the brief:
+- A single construction attempt already passes every rule across the test matrix, so the multi-candidate loop is only a safety net for unusual hidden-exercise combinations.
+- The second leg lift is always a hinge or leg curl. Hip thrusts moved to a later slot so two-lift leg sessions still train hamstrings.
+- One single-leg lift per workout (`exclusive:'single_leg'`).
+- A chest-only hour still shows 4+ horizontal-family presses. Eight chest exercises cannot avoid it; the fix for that is choosing a second muscle group.
+
+Seeds 1 to 2000 per configuration, warm-up on, supersets off unless stated.
+
+| Configuration | Metric | Value |
+|---|---|---|
+| Chest, 15 min | lifts / sets | 2.0 / 7.0 |
+| Chest, 15 min | 4+ horizontal presses | 0.0% |
+| Chest, 15 min | distinct workouts | 28 |
+| Chest, 30 min | lifts / sets | 4.0 / 13.0 |
+| Chest, 30 min | 4+ horizontal presses | 0.0% |
+| Chest, 30 min | distinct workouts | 120 |
+| Chest, 60 min | lifts / sets | 8.0 / 27.0 |
+| Chest, 60 min | 4+ horizontal presses | 100.0% |
+| Chest, 60 min | distinct workouts | 180 |
+| Legs, 15 min | no hinge and no leg curl | 0.0% |
+| Legs, 15 min | Bulgarian split squat and walking lunge together | 0.0% |
+| Legs, 15 min | 4+ high-fatigue lifts | 0.0% |
+| Legs, 30 min | no hinge and no leg curl | 0.0% |
+| Legs, 30 min | Bulgarian split squat and walking lunge together | 0.0% |
+| Legs, 30 min | 4+ high-fatigue lifts | 0.0% |
+| Legs, 60 min | no hinge and no leg curl | 0.0% |
+| Legs, 60 min | Bulgarian split squat and walking lunge together | 0.0% |
+| Legs, 60 min | 4+ high-fatigue lifts | 0.0% |
+| Back, 15 min | 3+ vertical pulls | 0.0% |
+| Back, 15 min | deadlift not first (when present) | n/a |
+| Back, 30 min | 3+ vertical pulls | 0.0% |
+| Back, 30 min | deadlift not first (when present) | 0.0% |
+| Back, 60 min | 3+ vertical pulls | 0.0% |
+| Back, 60 min | deadlift not first (when present) | 0.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | isolation before a compound | 0.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | bench and barbell OHP together | 4.8% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | 5+ presses | 0.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | no lateral raise | 0.0% |
+| Back 50 / legs 50, 60 min | deadlift and RDL together | 0.0% |
+| Back 50 / legs 50, 60 min | isolation before a compound | 0.0% |
+| Chest 40 / back 40 / biceps 20, 15 min, bad | lifts / sets | 3.0 / 6.0 |
+| Chest 40 / back 40 / biceps 20, 15 min, ok | lifts / sets | 3.0 / 7.0 |
+| Chest 40 / back 40 / biceps 20, 15 min, good | lifts / sets | 3.0 / 7.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, bad | lifts / sets | 3.0 / 10.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, ok | lifts / sets | 5.0 / 13.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, good | lifts / sets | 5.0 / 15.0 |
+| Chest 40 / back 40 / biceps 20, 45 min, bad | lifts / sets | 5.0 / 15.0 |
+| Chest 40 / back 40 / biceps 20, 45 min, ok | lifts / sets | 7.0 / 20.0 |
+| Chest 40 / back 40 / biceps 20, 45 min, good | lifts / sets | 7.0 / 22.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, bad | lifts / sets | 7.0 / 20.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, ok | lifts / sets | 10.0 / 27.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, good | lifts / sets | 10.0 / 29.0 |
+| Chest 50 / back 50, 30 min | exercises shared with the previous generation | 20% |
+| Four primary groups, 60 min, supersets on | workouts with at least one superset | 89.8% |
+| All of the above | workouts the linter flags | 0 of 50000 |

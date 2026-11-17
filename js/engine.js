@@ -5,7 +5,33 @@
 //   request = { dur, feel, groups: {id: {on, pct}}, opts: {warm, cooldown, cardio, superset}, seed }
 //   ctx     = { last: {exerciseId: {w, reps}}, date: ISO string,
 //               hidden?: [exerciseId] never to select, lib?: replacement library (tests) }
-import { LIB, PATTERNS, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
+//
+// Pipeline: budget (sets the time affords) -> sets per muscle group -> movement
+// slots per group -> fill each slot in priority order -> sequence -> sets and
+// loads -> optional supersets -> lint. A few seeded candidates are built and
+// the first one that passes every rule is returned.
+import { LIB, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
+import { MIN_SETS, MAX_SETS, PATTERN_REPEAT_LIMIT, exerciseGroupId, patternFamily, canShareWorkout,
+  compatibleCapacity, hingeOk, pressCounts, pressStackOk, fatigueCap, highFatigueCount,
+  orderViolations, lintWorkout } from './rules.js';
+export { exerciseGroupId };
+
+/* ---------- Time budget ---------- */
+// One table for everything that depends on session length.
+export const DURATIONS={
+  '15':{label:'10–15 min',short:'10–15m',minutes:15,maxGroups:4,supersets:2},
+  '30':{label:'30 min',short:'30m',minutes:30,maxGroups:6,supersets:2},
+  '45':{label:'45 min',short:'45m',minutes:45,maxGroups:7,supersets:3},
+  '60':{label:'1 hour',short:'1h',minutes:60,maxGroups:8,supersets:3},
+};
+// Average minutes per work set, rest included. The single pace assumption:
+// raise it if sessions run long, lower it if they finish early.
+export const MINUTES_PER_SET=2.25;
+const FEEL_VOLUME={bad:0.75,ok:1,good:1.1};
+// Work sets the session can hold. Exercise count follows from this, not the reverse.
+export function planBudget(dur,feel){
+  return Math.max(MIN_SETS,Math.round(DURATIONS[dur].minutes/MINUTES_PER_SET*(FEEL_VOLUME[feel]||1)));
+}
 
 /* ---------- Seeded RNG ---------- */
 export function mulberry32(seed){
@@ -18,7 +44,7 @@ export function mulberry32(seed){
   };
 }
 
-/* ---------- Loads, reps and sets ---------- */
+/* ---------- Loads and reps ---------- */
 function roundInc(w,unit){ if(unit==='ea'){return Math.max(0,Math.round(w/2.5)*2.5);} return Math.max(0,Math.round(w/5)*5); }
 function suggestWeight(e,feel,last){
   const prior=last[e.id]||{w:e.w||0,reps:e.reps};
@@ -47,16 +73,8 @@ function notesLoadSuffix(item){
   if(style==='perSide')return ' ea';
   return item.unit&&item.unit!=='lb'?' '+item.unit:'';
 }
-function schemeFor(e,dur,feel){
-  // sets by duration & feeling; compounds get more
-  let base = dur==='15'?2 : dur==='30'?3 : 4;
-  if(e.t==='i') base = Math.max(2, base-1);
-  if(feel==='good' && e.t==='c') base+=1;
-  if(feel==='bad') base=Math.max(1, base-1);
-  return base;
-}
 
-/* ---------- Selection ---------- */
+/* ---------- Warm-up, correctives and cardio ---------- */
 function pickWithRng(arr,n,rng){
   const pool=[...arr],out=[];
   while(out.length<n&&pool.length)out.push(pool.splice(Math.floor(rng()*pool.length),1)[0]);
@@ -80,32 +98,9 @@ function selectCorrectives(phase,count,groupIds,mainItems,excludeIds,rng){
   chosen.push(...pickWithRng(candidates,count-chosen.length,rng));
   return chosen.slice(0,count).map(item=>({id:item.id,name:item.name,reps:item.reps,warm:true,corrective:true}));
 }
-function canShareWorkout(exercise,chosen){
-  return !exercise.exclusive||!chosen.some(other=>other.exclusive===exercise.exclusive);
-}
-function pickCompatible(arr,n,chosen,rng){
-  const pool=[...arr],out=[];
-  while(out.length<n&&pool.length){
-    const candidate=pool.splice(Math.floor(rng()*pool.length),1)[0];
-    if(canShareWorkout(candidate,[...chosen,...out]))out.push(candidate);
-  }
-  return out;
-}
-export function exerciseGroupId(e){return e&&e.sub?e.sub:e&&e.group;}
-function groupPool(lib,hidden,id){return lib.filter(e=>exerciseGroupId(e)===id&&!hidden.has(e.id));}
-function compatibleCapacity(pool){
-  const exclusive=new Set();let capacity=0;
-  pool.forEach(e=>{
-    if(!e.exclusive){capacity++;return;}
-    if(!exclusive.has(e.exclusive)){exclusive.add(e.exclusive);capacity++;}
-  });
-  return capacity;
-}
 
 /* ---------- Supersets ---------- */
 function pairKey(a,b){return [a,b].sort().join('|');}
-function patternFamily(pattern){return PATTERNS[pattern]?PATTERNS[pattern].family:pattern;}
-function supersetLimit(dur){return dur==='15'?2:dur==='30'?2:3;}
 function supersetScore(a,b){
   if(!a||!b||a.sets!==b.sets)return -1;
   const am=a.pairMeta||{},bm=b.pairMeta||{};
@@ -146,129 +141,282 @@ function supersetScore(a,b){
   }else if(am.equipment==='bodyweight'||bm.equipment==='bodyweight')score+=4;
   return score;
 }
-function chooseSupersetPairs(items,limit){
+
+
+// Pairs compatible neighbours without disturbing the lifting order: a pair is
+// only formed if the merged order still passes every order rule.
+function arrangeSupersets(entries,limit){
   const candidates=[];
-  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
-    const score=supersetScore(items[i],items[j]);
-    if(score>0)candidates.push({a:i,b:j,score});
+  for(let i=0;i<entries.length;i++)for(let j=i+1;j<entries.length;j++){
+    const score=supersetScore(entries[i].item,entries[j].item);
+    if(score>0)candidates.push({a:entries[i],b:entries[j],score,i,j});
   }
-  candidates.sort((x,y)=>y.score-x.score||x.a-y.a||x.b-y.b);
-  const used=new Set(),pairs=[];
-  for(const pair of candidates){
-    if(pairs.length>=limit)break;
-    if(used.has(pair.a)||used.has(pair.b))continue;
-    used.add(pair.a);used.add(pair.b);pairs.push(pair);
+  candidates.sort((x,y)=>y.score-x.score||x.i-y.i||x.j-y.j);
+  let units=entries.map(entry=>[entry]);
+  const used=new Set(),scores=new Map();
+  for(const c of candidates){
+    if(scores.size>=limit)break;
+    if(used.has(c.a)||used.has(c.b))continue;
+    const merged=[c.a,c.b];
+    // Join the pair where its first lift sits, or failing that where its second sits.
+    const placements=[[c.a,c.b],[c.b,c.a]].map(([anchor,moved])=>
+      units.filter(unit=>unit[0]!==moved).map(unit=>unit[0]===anchor?merged:unit));
+    const valid=placements.find(order=>!orderViolations(order.flat().map(entry=>entry.e)).length);
+    if(!valid)continue;
+    units=valid;used.add(c.a);used.add(c.b);scores.set(merged,c.score);
   }
-  return pairs;
-}
-function organizeSupersets(items,dur){
-  const pairs=chooseSupersetPairs(items,supersetLimit(dur));
-  if(!pairs.length)return {items,pairs:[]};
-  const paired=new Set(pairs.flatMap(pair=>[pair.a,pair.b]));
-  const units=pairs.map(pair=>({kind:'pair',first:Math.min(pair.a,pair.b),pair}));
-  items.forEach((item,index)=>{if(!paired.has(index))units.push({kind:'solo',first:index,index,item});});
-  units.sort((a,b)=>{
-    const ap=a.kind==='solo'&&a.item.t==='c'?0:a.kind==='pair'?1:2;
-    const bp=b.kind==='solo'&&b.item.t==='c'?0:b.kind==='pair'?1:2;
-    return ap-bp||a.first-b.first;
-  });
-  const arranged=[],summary=[];
+  const items=[],pairs=[];
   units.forEach(unit=>{
-    if(unit.kind==='solo'){arranged.push(unit.item);return;}
-    const label=String.fromCharCode(65+summary.length);
-    const first=items[unit.pair.a],second=items[unit.pair.b];
-    arranged.push({...first,supersetId:label,supersetOrder:1});
-    arranged.push({...second,supersetId:label,supersetOrder:2});
-    summary.push({id:label,first:first.name,second:second.name,score:unit.pair.score});
+    if(unit.length===1){items.push(unit[0].item);return;}
+    const label=String.fromCharCode(65+pairs.length);
+    items.push({...unit[0].item,supersetId:label,supersetOrder:1});
+    items.push({...unit[1].item,supersetId:label,supersetOrder:2});
+    pairs.push({id:label,first:unit[0].item.name,second:unit[1].item.name,score:scores.get(unit)});
   });
-  return {items:arranged,pairs:summary};
+  return {items,pairs};
 }
 
-/* ---------- Allocation ---------- */
-function allocateGroupCounts(on,total,pctTotal,groups,rng,poolOf){
-  const alloc=on.map(g=>{
+/* ---------- Sets per muscle group ---------- */
+function groupPool(lib,hidden,id){return lib.filter(e=>exerciseGroupId(e)===id&&!hidden.has(e.id));}
+// Splits the set budget across the selected groups by their percentages. Every
+// group gets at least MIN_SETS; a group stops at what its exercises can hold.
+// The shortfall, if any, is reported instead of being hidden.
+function planGroups(on,groups,budget,poolOf,rng){
+  const pctTotal=on.reduce((sum,g)=>sum+groups[g.id].pct,0);
+  const plan=on.map(g=>{
     const capacity=compatibleCapacity(poolOf(g.id));
-    // A group with nothing selectable (all hidden) takes no slot.
-    return {g,n:Math.min(1,capacity),capacity,quota:groups[g.id].pct/pctTotal*total,tie:rng()};
+    const maxSets=capacity*MAX_SETS;
+    return {g,capacity,maxSets,pct:groups[g.id].pct,sets:Math.min(MIN_SETS,maxSets),tie:rng()};
   });
-  let used=alloc.reduce((sum,a)=>sum+a.n,0);
-  while(used<total){
-    const candidates=alloc.filter(a=>a.n<a.capacity);
-    if(!candidates.length)break;
-    candidates.sort((a,b)=>(b.quota-b.n)-(a.quota-a.n)||a.tie-b.tie);
-    candidates[0].n++;used++;
+  const floor=plan.reduce((sum,p)=>sum+p.sets,0);
+  const target=Math.max(budget,floor);
+  plan.forEach(p=>{p.quota=p.pct/pctTotal*target;});
+  let used=floor;
+  while(used<target){
+    const open=plan.filter(p=>p.sets<p.maxSets);
+    if(!open.length)break;
+    open.sort((a,b)=>(b.quota-b.sets)-(a.quota-a.sets)||a.tie-b.tie);
+    open[0].sets++;used++;
   }
-  return alloc;
+  // Up to four sets is one exercise; beyond that, about three and a half sets each.
+  plan.forEach(p=>{p.count=p.sets?Math.min(p.capacity,p.sets<=MAX_SETS?1:Math.ceil(p.sets/3.5)):0;});
+
+  const notes=[];
+  plan.filter(p=>!p.capacity).forEach(p=>
+    notes.push({rule:'served',text:`${p.g.name} was skipped: every ${p.g.name.toLowerCase()} exercise is hidden.`}));
+  if(floor>budget+1){
+    notes.push({rule:'budget',text:`${on.length} muscle groups need at least ${floor} sets and this session fits ${budget}, so expect it to run long.`});
+  }
+  if(used<target-1){
+    const full=plan.filter(p=>p.capacity&&p.sets>=p.maxSets).map(p=>p.g.name);
+    notes.push({rule:'budget',text:`Only ${used} of ${target} sets: ${full.join(' and ')} ${full.length===1?'has':'have'} no more exercises to add. Add a muscle group or pick a shorter session.`});
+  }
+  return {plan,notes};
 }
-function buildItem(e,dur,feel,last){
-  const sets=schemeFor(e,dur,feel);
+
+/* ---------- Movement slots ---------- */
+// What each muscle group trains first, second, third... A slot lists the
+// movement patterns that can fill it. `ordered` slots take the first listed
+// pattern the group has not used yet. Tier 0 slots are filled across all groups
+// before tier 1, then tier 2, so a session covers its essentials first.
+const SLOTS={
+  chest:[
+    {tier:0,patterns:['horizontal_press','incline_press']},
+    {tier:0,patterns:['fly']},
+    {tier:1,patterns:['incline_press','horizontal_press'],ordered:true},
+    {tier:1,patterns:['dip','fly']},
+  ],
+  back:[
+    {tier:0,patterns:['vertical_pull','horizontal_pull']},
+    {tier:0,patterns:['vertical_pull','horizontal_pull'],ordered:true},
+    {tier:1,patterns:['horizontal_pull','vertical_pull']},
+    {tier:1,patterns:['lat_isolation','spinal_extension','shrug','hinge']},
+  ],
+  legs:[
+    {tier:0,patterns:['squat']},
+    {tier:0,patterns:['hinge','knee_flexion']},
+    {tier:1,patterns:['knee_flexion','unilateral_legs']},
+    {tier:1,patterns:['knee_extension','unilateral_legs','squat']},
+    {tier:2,patterns:['hip_thrust','hip_abduction','hip_adduction','knee_extension','knee_flexion']},
+  ],
+  shoulders:[
+    {tier:0,patterns:['vertical_press','lateral_raise']},
+    {tier:0,patterns:['lateral_raise','rear_delt'],ordered:true},
+    {tier:1,patterns:['rear_delt','lateral_raise','vertical_press'],ordered:true},
+    {tier:2,patterns:['upright_pull','front_raise','lateral_raise','rear_delt']},
+  ],
+  bis:[{tier:0,patterns:['curl']}],
+  tris:[
+    {tier:0,patterns:['triceps','triceps_overhead']},
+    {tier:1,patterns:['triceps','triceps_overhead'],ordered:true},
+  ],
+  core:[
+    {tier:0,patterns:['core_flexion','hanging_core']},
+    {tier:1,patterns:['anti_extension','anti_rotation','anti_lateral_flexion']},
+    {tier:2,patterns:['rotation','carry','dynamic_core','spinal_extension']},
+  ],
+  calves:[{tier:0,patterns:['calves']}],
+};
+// Past the end of a group's list, any pattern may fill the slot.
+const ANY_SLOT={tier:2,patterns:null};
+// Scores are preferences, not cut-offs: every ten points doubles a candidate's
+// chance of being picked. This is where variety comes from.
+const SCORE_DOUBLING=10;
+
+function openSlots(plan){
+  const slots=[];
+  plan.forEach((p,order)=>{
+    for(let k=0;k<p.count;k++){
+      const slot=(SLOTS[p.g.id]||[])[k]||ANY_SLOT;
+      slots.push({p,k,order,tier:slot.tier,patterns:slot.patterns,ordered:!!slot.ordered});
+    }
+  });
+  return slots.sort((a,b)=>a.tier-b.tier||b.p.sets-a.p.sets||a.order-b.order||a.k-b.k);
+}
+// Fills every slot in priority order. Hard rules narrow the candidates first,
+// then the slot's patterns, then a weighted draw chooses among what is left. A rule is
+// only relaxed when keeping it would leave the slot empty.
+function fillSlots(plan,poolOf,feel,rng){
+  const slots=openSlots(plan);
+  const cap=fatigueCap(slots.length,feel);
+  const picks=[];
+  for(const slot of slots){
+    const all=picks.map(pick=>pick.e);
+    const mine=picks.filter(pick=>pick.p===slot.p).map(pick=>pick.e);
+    const used=pattern=>mine.filter(e=>e.pattern===pattern).length;
+    let candidates=poolOf(slot.p.g.id).filter(e=>!all.includes(e)&&canShareWorkout(e,all));
+    if(!candidates.length)continue;
+    const keep=test=>{const next=candidates.filter(test);if(next.length)candidates=next;};
+    keep(e=>hingeOk([...all,e]));
+    keep(e=>pressStackOk([...all,e]));
+    keep(e=>e.fatigue!=='high'||highFatigueCount(all)<cap);
+    keep(e=>used(e.pattern)<PATTERN_REPEAT_LIMIT);
+    if(slot.patterns){
+      keep(e=>slot.patterns.includes(e.pattern));
+      if(slot.ordered){
+        const first=slot.patterns.find(pattern=>!used(pattern)&&candidates.some(e=>e.pattern===pattern));
+        if(first)keep(e=>e.pattern===first);
+      }
+    }
+    const {horizontal,vertical}=pressCounts(all);
+    const equipment=new Set(mine.map(e=>e.equipment));
+    const scored=candidates.map(e=>({e,score:
+      (used(e.pattern)?0:20)                                   // a movement the group has not done yet
+      +(slot.tier===0&&e.t==='c'?15:0)                         // essentials lead with a compound
+      +(equipment.has(e.equipment)?0:8)                        // vary the tool within a muscle group
+      -(patternFamily(e.pattern)==='vertical_press'?10*(horizontal+vertical):0)  // ease off overhead work on press-heavy days
+      -(feel==='bad'&&e.fatigue==='high'?30:0)}));             // deload days avoid the most taxing lifts
+    const weights=scored.map(s=>Math.pow(2,s.score/SCORE_DOUBLING));
+    let roll=rng()*weights.reduce((sum,weight)=>sum+weight,0),index=0;
+    while(index<weights.length-1&&(roll-=weights[index])>=0)index++;
+    picks.push({e:scored[index].e,p:slot.p,k:slot.k});
+  }
+  return picks;
+}
+// Shares a group's sets among its exercises; compounds and earlier slots get the extra set.
+function assignSets(plan,picks){
+  plan.forEach(p=>{
+    const mine=picks.filter(pick=>pick.p===p).sort((a,b)=>(a.e.t==='c'?0:1)-(b.e.t==='c'?0:1)||a.k-b.k);
+    if(!mine.length)return;
+    const sets=Math.min(p.sets,mine.length*MAX_SETS);
+    const base=Math.floor(sets/mine.length),extra=sets-base*mine.length;
+    mine.forEach((pick,index)=>{pick.sets=base+(index<extra?1:0);});
+  });
+}
+
+/* ---------- Sequencing ---------- */
+const PRIMARY=new Set(['chest','back','legs','shoulders']);
+const EQUIPMENT_ORDER=['barbell','smith','bodyweight','dumbbell','cable','machine'];
+// Order of work. Each muscle group's lead lift comes first, most-emphasized
+// group first. Then the remaining compounds, most taxing first. Then isolations
+// for the big muscle groups, then arms, calves, and core last.
+function sequence(plan,picks){
+  const share=[...plan].sort((a,b)=>b.sets-a.sets);
+  const heavy=pick=>pick.e.pattern==='squat'?0:pick.e.pattern==='hinge'?1:2;   // squat, then hinge, then the rest
+  // A group's lead lift is its first compound, or its squat or hinge if it has one.
+  const leads=new Set();
+  plan.forEach(p=>{
+    const compounds=picks.filter(pick=>pick.p===p&&pick.e.t==='c').sort((a,b)=>heavy(a)-heavy(b)||a.k-b.k);
+    if(compounds.length)leads.add(compounds[0]);
+  });
+  const key=pick=>{
+    const group=pick.p.g.id,rank=share.indexOf(pick.p);
+    if(leads.has(pick))return [0,rank,0,0,0];
+    if(pick.e.t==='c')return [1,pick.e.fatigue==='high'?0:1,heavy(pick),rank,EQUIPMENT_ORDER.indexOf(pick.e.equipment)*10+pick.k];
+    return [PRIMARY.has(group)?2:group==='calves'?4:group==='core'?5:3,rank,pick.k,0,0];
+  };
+  return picks.map(pick=>({pick,key:key(pick)}))
+    .sort((a,b)=>{for(let i=0;i<a.key.length;i++){if(a.key[i]!==b.key[i])return a.key[i]-b.key[i];}return 0;})
+    .map(x=>x.pick);
+}
+
+/* ---------- Generate ---------- */
+function buildItem(e,sets,feel,last){
   const w=e.bw?null:suggestWeight(e,feel,last);
   return {id:e.id,name:e.name,reps:suggestReps(e,last),unit:e.unit||'lb',loadStyle:e.loadStyle||null,bw:!!e.bw,sets,w,note:e.note||null,t:e.t,
     group:exerciseGroupId(e),pairMeta:{equipment:e.equipment,pattern:e.pattern,fatigue:e.fatigue},
     ...(e.loadType?{loadType:e.loadType}:{})};
 }
-
-/* ---------- Generate ---------- */
-export function generateWorkout(request,ctx){
+function buildCandidate(request,ctx,lib,hidden,rng){
   const {dur,feel,groups,opts}=request;
   const {last}=ctx;
-  const lib=ctx.lib||LIB;
-  const hidden=new Set(ctx.hidden||[]);
   const poolOf=id=>groupPool(lib,hidden,id);
-  const rng=mulberry32(request.seed);
   const on=GROUPS.filter(g=>groups[g.id].on && groups[g.id].pct>0);
-  const pctTotal=on.reduce((a,g)=>a+groups[g.id].pct,0);
-  const totalMap={'15':4,'30':6,'60':9};
-  let total=totalMap[dur];
-  if(feel==='bad') total=Math.max(2,total-1);
-  // Every selection receives one exercise. Remaining slots follow the requested
-  // percentages and respect each group's distinct exercise-library capacity.
-  const mainTotal=Math.max(on.length,total);
-  const alloc=allocateGroupCounts(on,mainTotal,pctTotal,groups,rng,poolOf);
-
-  const mainItems=[];
-  alloc.forEach(a=>{
-    const gid=a.g.id;
-    const pool=poolOf(gid);
-    const poolC=pool.filter(e=>e.t==='c');
-    const poolI=pool.filter(e=>e.t==='i');
-    const chosen=[];
-    // prioritise compounds
-    chosen.push(...pickCompatible(poolC,Math.min(poolC.length,Math.ceil(a.n*0.6)),chosen,rng));
-    chosen.push(...pickCompatible(poolI,Math.max(0,a.n-chosen.length),chosen,rng));
-    while(chosen.length<a.n){
-      const extra=pickCompatible([...poolC,...poolI].filter(e=>!chosen.includes(e)),1,chosen,rng);
-      if(!extra.length)break;
-      chosen.push(extra[0]);
-    }
-    chosen.slice(0,a.n).forEach(e=>mainItems.push(buildItem(e,dur,feel,last)));
-  });
+  const budget=planBudget(dur,feel);
+  const {plan,notes}=planGroups(on,groups,budget,poolOf,rng);
+  const picks=fillSlots(plan,poolOf,feel,rng);
+  assignSets(plan,picks);
+  const entries=sequence(plan,picks).map(pick=>({e:pick.e,item:buildItem(pick.e,pick.sets,feel,last)}));
   const wantsSupersets=opts.superset&&feel!=='bad';
-  const organized=wantsSupersets?organizeSupersets(mainItems,dur):{items:mainItems,pairs:[]};
+  const organized=wantsSupersets?arrangeSupersets(entries,DURATIONS[dur].supersets):{items:entries.map(entry=>entry.item),pairs:[]};
   const activeGroupIds=on.map(group=>group.id);
   const sections=[],usedCorrectives=[];
   if(opts.warm){
     const corrective=selectCorrectives('warmup',1,activeGroupIds,organized.items,usedCorrectives,rng);
     usedCorrectives.push(...corrective.map(item=>item.id));
     const baseWarmups=relevantWarmups(activeGroupIds,3-corrective.length,rng).map(item=>({name:item.name,reps:item.reps,warm:true}));
-    sections.push({title:'Warm-up',icon:'\u26A1',items:[...baseWarmups,...corrective]});
+    sections.push({title:'Warm-up',icon:'⚡',items:[...baseWarmups,...corrective]});
   }
-  sections.push({title:'Main work',icon:'\uD83C\uDFCB\uFE0F',items:organized.items});
+  sections.push({title:'Main work',icon:'🏋️',items:organized.items});
   if(opts.cardio){
     const c=pickWithRng(CARDIO,1,rng)[0];
-    sections.push({title:'Cardio',icon:'\uD83C\uDFC3',items:[{name:c.name,reps:c.reps,warm:true}]});
+    sections.push({title:'Cardio',icon:'🏃',items:[{name:c.name,reps:c.reps,warm:true}]});
   }
   if(opts.cooldown){
     const corrective=selectCorrectives('cooldown',2-usedCorrectives.length,activeGroupIds,organized.items,usedCorrectives,rng);
-    if(corrective.length)sections.push({title:'Cooldown',icon:'\uD83E\uDDD8',items:corrective});
+    if(corrective.length)sections.push({title:'Cooldown',icon:'🧘',items:corrective});
   }
   // form note: pick one from main items that has a note
   const noteItem=organized.items.filter(it=>it.note);
   const formNote=noteItem.length?pickWithRng(noteItem,1,rng)[0]:null;
+  const sets=picks.reduce((sum,pick)=>sum+pick.sets,0);
   return {date:ctx.date,seed:request.seed,dur,feel,sections,
-    split:alloc.map(a=>({id:a.g.id,name:a.g.name,pct:groups[a.g.id].pct,count:a.n})),
+    split:plan.map(p=>{
+      const mine=picks.filter(pick=>pick.p===p);
+      return {id:p.g.id,name:p.g.name,pct:p.pct,count:mine.length,sets:mine.reduce((sum,pick)=>sum+pick.sets,0)};
+    }),
     formNote:formNote?{name:formNote.name,text:formNote.note}:null,
-    supersets:organized.pairs};
+    supersets:organized.pairs,
+    budget,sets,minutes:Math.round(sets*MINUTES_PER_SET),notes};
+}
+// How many seeded candidates to try before settling for the best imperfect one.
+const ATTEMPTS=6;
+// Builds candidates until one passes the linter. `notes` on the result states
+// anything the request made impossible; a rule already explained by a note is
+// not reported twice.
+export function generateWorkout(request,ctx){
+  const lib=ctx.lib||LIB;
+  const hidden=new Set(ctx.hidden||[]);
+  let best=null;
+  for(let attempt=0;attempt<ATTEMPTS;attempt++){
+    const workout=buildCandidate(request,ctx,lib,hidden,mulberry32((request.seed+attempt*0x9E3779B9)>>>0));
+    const problems=lintWorkout(workout,{lib,hidden:[...hidden]})
+      .filter(problem=>!workout.notes.some(note=>note.rule===problem.rule));
+    if(!best||problems.length<best.problems.length)best={workout,problems};
+    if(!problems.length)break;
+  }
+  best.workout.notes=[...best.workout.notes,...best.problems];
+  return best.workout;
 }
 
 /* ---------- Apple Notes text ---------- */
