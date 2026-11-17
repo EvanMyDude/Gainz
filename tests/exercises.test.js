@@ -18,7 +18,7 @@ test('metadata lives on the exercise record and uses known vocabulary', () => {
   assert.equal(data.PAIR_META, undefined);
   for (const e of LIB) {
     assert.ok(Object.hasOwn(PATTERNS, e.pattern), `${e.id}: unknown pattern ${e.pattern}`);
-    assert.ok(EQUIPMENT.includes(e.equipment), `${e.id}: unknown equipment ${e.equipment}`);
+    assert.ok(Object.hasOwn(EQUIPMENT, e.equipment), `${e.id}: unknown equipment ${e.equipment}`);
     assert.ok(['low', 'moderate', 'high'].includes(e.fatigue), `${e.id}: bad fatigue ${e.fatigue}`);
   }
 });
@@ -96,4 +96,27 @@ test('new exercises start with a usable load, and the library grew as planned', 
   added.forEach(e => { if (!e.bw) assert.ok(e.w > 0, `${e.id}: starting load`); });
   // Compounds in the single-muscle groups would dominate the current selector.
   LIB.filter(e => e.sub).forEach(e => assert.equal(e.t, 'i', `${e.id}: targeted-group compound`));
+});
+
+test('every piece of equipment declares its load step, and overrides are sensible', () => {
+  for (const [id, equipment] of Object.entries(EQUIPMENT)) {
+    assert.ok(Number.isFinite(equipment.step) && equipment.step >= 0, `${id}: step`);
+  }
+  assert.equal(EQUIPMENT.cable.step, 12);
+  assert.equal(EQUIPMENT.machine.step, 12);
+  assert.equal(EQUIPMENT.dumbbell.step, 5);
+  LIB.filter(e => e.step !== undefined).forEach(e => assert.ok(e.step > 0, `${e.id}: step override`));
+  // Plate-loaded machines do not move in stack steps.
+  assert.equal(byId('seatedcalf').step, 5);
+  assert.equal(byId('hacksquat').step, 5);
+  // Logged at 48 per side, a stack weight.
+  assert.equal(byId('slcalf').equipment, 'machine');
+});
+
+test('starting loads of the exercises added after the original library sit on a real step', () => {
+  const legacyIds = new Set(legacy.map(e => e.id));
+  for (const e of LIB.filter(e => !legacyIds.has(e.id) && !e.bw)) {
+    const step = e.step || EQUIPMENT[e.equipment].step;
+    assert.equal(e.w % step, 0, `${e.id}: ${e.w} is not a multiple of ${step}`);
+  }
 });

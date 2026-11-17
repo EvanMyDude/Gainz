@@ -10,7 +10,7 @@
 // slots per group -> fill each slot in priority order -> sequence -> sets and
 // loads -> optional supersets -> lint. A few seeded candidates are built and
 // the first one that passes every rule is returned.
-import { LIB, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
+import { LIB, EQUIPMENT, WARMUPS, CORRECTIVES, CARDIO, GROUPS } from './exercises.js';
 import { MIN_SETS, MAX_SETS, PATTERN_REPEAT_LIMIT, exerciseGroupId, patternFamily, canShareWorkout,
   compatibleCapacity, hingeOk, pressCounts, pressStackOk, fatigueCap, highFatigueCount,
   orderViolations, lintWorkout } from './rules.js';
@@ -45,18 +45,20 @@ export function mulberry32(seed){
 }
 
 /* ---------- Loads and reps ---------- */
-function roundInc(w,unit){ if(unit==='ea'){return Math.max(0,Math.round(w/2.5)*2.5);} return Math.max(0,Math.round(w/5)*5); }
+const FEEL_LOAD={good:1.04,bad:0.88};   // progress ~4%, deload ~12%
+// The smallest load change this exercise's equipment allows.
+function loadStep(e){return e.step||(EQUIPMENT[e.equipment]||{}).step||0;}
 function suggestWeight(e,feel,last){
   const prior=last[e.id]||{w:e.w||0,reps:e.reps};
-  let w=prior.w||0;
-  // Assistance runs the other way (less is harder) and sits on a weight stack,
-  // so the percentage nudges below would move it wrongly. Carry it unchanged.
-  if(e.loadType==='assistance')return w;
-  if(w>0){
-    if(feel==='good') w=w*1.04;      // progress ~4%
-    else if(feel==='bad') w=w*0.88;  // deload ~12%
-  }
-  return roundInc(w,e.unit);
+  const stored=prior.w||0;
+  // A steady day shows the recorded load exactly as recorded. Assistance runs
+  // the other way (less is harder), so it is always carried unchanged.
+  if(!FEEL_LOAD[feel]||stored<=0||e.loadType==='assistance')return stored;
+  // Nudge, then snap to a weight the equipment actually has. A nudge smaller
+  // than one step leaves the load where it is; it never moves the wrong way.
+  const target=stored*FEEL_LOAD[feel],step=loadStep(e);
+  const snapped=step?Math.round(target/step)*step:Math.round(target);
+  return feel==='good'?Math.max(snapped,stored):Math.min(snapped,stored);
 }
 function suggestReps(e,last){
   const prior=last[e.id];

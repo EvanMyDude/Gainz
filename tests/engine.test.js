@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DURATIONS, MINUTES_PER_SET, generateWorkout, notesText, planBudget } from '../js/engine.js';
 import { MAX_SETS, MIN_SETS, lintWorkout } from '../js/rules.js';
-import { GROUPS, LIB } from '../js/exercises.js';
+import { EQUIPMENT, GROUPS, LIB } from '../js/exercises.js';
 import { NOTES_DATE, expandGroups, mainItems } from './helpers.js';
 
 const groupIds = GROUPS.map(group => group.id);
@@ -241,13 +241,56 @@ test('assistance loads are carried unchanged by the feel setting and flagged on 
   assert.ok(!('loadType' in plain));
 });
 
-test('loads follow the last recorded weight and the feel setting', () => {
-  const bench = LIB.find(e => e.id === 'bench');
-  const load = feel => mainItems(generate({ chest: 100 }, { feel }, { lib: [bench], last: { bench: { w: 150, reps: '6-8' } } }))[0];
-  assert.equal(load('ok').w, 150);
-  assert.equal(load('good').w, 155);
-  assert.equal(load('bad').w, 130);
-  assert.equal(load('ok').reps, '6-8');
+// The load an exercise is given when `stored` was its last recorded weight.
+function loadFor(id, stored, feel) {
+  const exercise = LIB.find(e => e.id === id);
+  const group = exercise.sub || exercise.group;
+  const [item] = mainItems(generate({ [group]: 100 }, { feel }, { lib: [exercise], last: { [id]: { w: stored, reps: '6-8' } } }));
+  return item;
+}
+const stepOf = e => e.step || EQUIPMENT[e.equipment].step;
+
+test('loads follow the last recorded weight and reps', () => {
+  assert.equal(loadFor('bench', 150, 'ok').w, 150);
+  assert.equal(loadFor('bench', 150, 'ok').reps, '6-8');
+});
+
+test('feel nudges the load, then snaps it to a weight the equipment has', () => {
+  const cases = [
+    // id, stored, ok, good, bad
+    ['bench', 155, 155, 160, 135],          // barbell, 5 lb steps
+    ['ropepush', 48, 48, 48, 48],           // cable stack, 12 lb steps: a 4% or 12% nudge is under one step
+    ['latpull', 120, 120, 120, 108],
+    ['inclinedb', 45, 45, 45, 40],          // dumbbells, 5 lb steps
+    ['seatedcalf', 45, 45, 45, 40],         // plate-loaded machine
+    ['cablelat', 12, 12, 12, 12],           // per-side cable load
+    ['machinelateral', 36, 36, 36, 36],
+  ];
+  for (const [id, stored, ok, good, bad] of cases) {
+    assert.equal(loadFor(id, stored, 'ok').w, ok, `${id} ok`);
+    assert.equal(loadFor(id, stored, 'good').w, good, `${id} good`);
+    assert.equal(loadFor(id, stored, 'bad').w, bad, `${id} bad`);
+  }
+});
+
+test('an off-step weight is shown as stored and never moves the wrong way', () => {
+  assert.equal(loadFor('cablefly', 35, 'ok').w, 35);     // the library default is not on a 12 lb step
+  assert.equal(loadFor('cablefly', 35, 'good').w, 36);   // snaps up onto the stack
+  assert.equal(loadFor('cablefly', 35, 'bad').w, 35);    // nearest step is 36, which a deload must not use
+  assert.equal(loadFor('bench', 152, 'ok').w, 152);
+});
+
+test('across the library: OK keeps the stored load, Good never lowers it, Bad never raises it', () => {
+  for (const exercise of LIB.filter(e => !e.bw && e.loadType !== 'assistance')) {
+    const step = stepOf(exercise);
+    for (const multiple of [1, 2, 3, 5, 8, 13]) {
+      const stored = step * multiple;
+      const ok = loadFor(exercise.id, stored, 'ok').w, good = loadFor(exercise.id, stored, 'good').w, bad = loadFor(exercise.id, stored, 'bad').w;
+      assert.equal(ok, stored, exercise.id);
+      assert.ok(good >= stored && good % step === 0, `${exercise.id} good ${stored} -> ${good}`);
+      assert.ok(bad <= stored && bad % step === 0 && bad > 0, `${exercise.id} bad ${stored} -> ${bad}`);
+    }
+  }
 });
 
 /* ---------- Apple Notes format ---------- */

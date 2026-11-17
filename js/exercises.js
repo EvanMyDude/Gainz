@@ -37,14 +37,24 @@ export const PATTERNS={
   rotation:{family:'rotation'},
   carry:{family:'carry'},
 };
-export const EQUIPMENT=['barbell','dumbbell','cable','machine','smith','bodyweight'];
+// `step` is the smallest load change the equipment allows, in the exercise's
+// own unit. Stacks here move in 12 lb steps; an exercise can override with `step`.
+export const EQUIPMENT={
+  barbell:{step:5},
+  dumbbell:{step:5},
+  smith:{step:5},
+  cable:{step:12},
+  machine:{step:12},
+  bodyweight:{step:0},
+};
 
 /* ---------- Exercise library (seeded from Evan's 2026 logs) ---------- */
 // group: primary muscle group; sub: standalone targeted group id (omitted for primary lifts)
 // t: 'c' compound | 'i' isolation ; bw: bodyweight ; w: starting load ; unit: weight unit
 // loadStyle: how an 'ea' load is counted ; loadType 'assistance': the load is machine assistance
 // exclusive: exercises sharing a key never appear in the same workout
-// equipment, pattern (see PATTERNS), fatigue: 'low' | 'moderate' | 'high'
+// equipment (see EQUIPMENT), pattern (see PATTERNS), fatigue: 'low' | 'moderate' | 'high'
+// step: load step for plate-loaded machines, overriding the equipment's
 export const LIB = [
   // CHEST
   {id:'bench',name:'Bench Press',group:'chest',t:'c',w:165,reps:'5-8',equipment:'barbell',pattern:'horizontal_press',fatigue:'high',note:'Drive your upper back into the bench. Legs planted before every rep.'},
@@ -102,7 +112,7 @@ export const LIB = [
   {id:'legext',name:'Leg Extension',group:'legs',t:'i',w:100,reps:'15',equipment:'machine',pattern:'knee_extension',fatigue:'low'},
   {id:'legcurl',name:'Leg Curl',group:'legs',t:'i',w:100,reps:'12-13',exclusive:'leg_curl',equipment:'machine',pattern:'knee_flexion',fatigue:'low'},
   {id:'smithsquat',name:'Smith Machine Back Squat',group:'legs',t:'c',w:155,reps:'5-8',exclusive:'back_squat',equipment:'smith',pattern:'squat',fatigue:'high'},
-  {id:'hacksquat',name:'Hack Squat',group:'legs',t:'c',w:90,reps:'8-10',equipment:'machine',pattern:'squat',fatigue:'high'},
+  {id:'hacksquat',name:'Hack Squat',group:'legs',t:'c',w:90,reps:'8-10',step:5,equipment:'machine',pattern:'squat',fatigue:'high'},
   {id:'hipthrust',name:'Barbell Hip Thrust',group:'legs',t:'c',w:135,reps:'8-12',equipment:'barbell',pattern:'hip_thrust',fatigue:'moderate'},
   {id:'dbrdl',name:'DB Romanian Deadlift',group:'legs',t:'c',w:40,reps:'10-12',unit:'ea',loadStyle:'pair',exclusive:'rdl',equipment:'dumbbell',pattern:'hinge',fatigue:'moderate'},
   {id:'reverselunge',name:'DB Reverse Lunge',group:'legs',t:'c',w:20,reps:'10/side',unit:'ea',loadStyle:'pair',exclusive:'single_leg',equipment:'dumbbell',pattern:'unilateral_legs',fatigue:'moderate'},
@@ -112,8 +122,8 @@ export const LIB = [
   // legs accessory: calves
   {id:'calfraise',name:'Standing Calf Raise',group:'legs',sub:'calves',t:'i',w:0,reps:'12-15',equipment:'machine',pattern:'calves',fatigue:'low'},
   {id:'lpcalf',name:'Leg Press Calf Raise',group:'legs',sub:'calves',t:'i',w:80,reps:'25',equipment:'machine',pattern:'calves',fatigue:'low'},
-  {id:'slcalf',name:'Single-Leg Calf Raise',group:'legs',sub:'calves',t:'i',w:48,reps:'15',unit:'ea',loadStyle:'perSide',equipment:'dumbbell',pattern:'calves',fatigue:'low'},
-  {id:'seatedcalf',name:'Seated Calf Raise',group:'legs',sub:'calves',t:'i',w:45,reps:'15',equipment:'machine',pattern:'calves',fatigue:'low'},
+  {id:'slcalf',name:'Single-Leg Calf Raise',group:'legs',sub:'calves',t:'i',w:48,reps:'15',unit:'ea',loadStyle:'perSide',equipment:'machine',pattern:'calves',fatigue:'low'},
+  {id:'seatedcalf',name:'Seated Calf Raise',group:'legs',sub:'calves',t:'i',w:45,reps:'15',step:5,equipment:'machine',pattern:'calves',fatigue:'low'},
   // SHOULDERS
   {id:'ohp',name:'Overhead Barbell Press',group:'shoulders',t:'c',w:95,reps:'5-8',equipment:'barbell',pattern:'vertical_press',fatigue:'high',note:'Ribs down, not flared. Brace hard.'},
   {id:'dbohp',name:'Seated DB Shoulder Press',group:'shoulders',t:'c',w:50,reps:'8-10',unit:'ea',loadStyle:'pair',exclusive:'seated_db_press',equipment:'dumbbell',pattern:'vertical_press',fatigue:'moderate'},
