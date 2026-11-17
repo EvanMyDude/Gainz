@@ -19,7 +19,7 @@ Decisions you made in this session:
 **Works well (read)**
 - The Apple Notes copy format (`notesText()`), including your `45's` / `ea` notation and blank `x ` rep lines. This is the real product surface.
 - `supersetScore()` is good rule-based coaching logic. It blocks high-fatigue lifts and overlapping prime movers and rewards antagonists and shared equipment. It is the template for how selection rules should be written.
-- `PAIR_META` already holds `pattern`, `equipment` and `fatigue` for all 61 exercises. Only the superset scorer reads it.
+- `PAIR_META` already holds `pattern`, `equipment` and `fatigue` for all 55 exercises. Only the superset scorer reads it.
 - `allocateGroupCounts()` and `normalizePercentages()` (largest-remainder allocation), the corrective and warm-up caps, and `exclusive` as a primitive redundancy rule.
 - Several helpers already take an `rng` argument, so seeded generation is half wired.
 
@@ -169,3 +169,52 @@ A badge on a workout that passes by construction only says the code agrees with 
 - Notes text format matches the snapshot.
 
 *Verify.* `node --test`; then serve with `python3 -m http.server`, drive the page in the preinstalled Playwright Chromium, generate on a phone-sized viewport, and check the Copy output by eye.
+
+## Baseline at commit 1 (pre-rework generator)
+
+Produced by `npm run baseline` on the extracted engine, which reproduces the original generator exactly. Commit 3 is judged against these numbers.
+
+Seeds 1 to 2000 per configuration, warm-up on, supersets off.
+
+| Configuration | Metric | Value |
+|---|---|---|
+| Chest, 15 min | lifts / sets | 4.0 / 8.0 |
+| Chest, 15 min | 4+ horizontal presses | 50.5% |
+| Chest, 15 min | distinct workouts | 4 |
+| Chest, 30 min | lifts / sets | 6.0 / 15.0 |
+| Chest, 30 min | 4+ horizontal presses | 100.0% |
+| Chest, 30 min | distinct workouts | 4 |
+| Chest, 60 min | lifts / sets | 7.0 / 24.0 |
+| Chest, 60 min | 4+ horizontal presses | 100.0% |
+| Chest, 60 min | distinct workouts | 1 |
+| Legs, 15 min | no hinge and no leg curl | 26.7% |
+| Legs, 15 min | Bulgarian split squat and walking lunge together | 30.0% |
+| Legs, 15 min | 4+ high-fatigue lifts | 0.0% |
+| Legs, 30 min | no hinge and no leg curl | 6.2% |
+| Legs, 30 min | Bulgarian split squat and walking lunge together | 59.8% |
+| Legs, 30 min | 4+ high-fatigue lifts | 100.0% |
+| Legs, 60 min | no hinge and no leg curl | 0.0% |
+| Legs, 60 min | Bulgarian split squat and walking lunge together | 100.0% |
+| Legs, 60 min | 4+ high-fatigue lifts | 100.0% |
+| Back, 15 min | 3+ vertical pulls | 20.6% |
+| Back, 15 min | deadlift not first (when present) | 67.3% |
+| Back, 30 min | 3+ vertical pulls | 65.7% |
+| Back, 30 min | deadlift not first (when present) | 80.1% |
+| Back, 60 min | 3+ vertical pulls | 100.0% |
+| Back, 60 min | deadlift not first (when present) | 83.3% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | isolation before a compound | 100.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | bench and barbell OHP together | 100.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | 5+ presses | 100.0% |
+| Chest 50 / shoulders 30 / triceps 20, 60 min | no lateral raise | 59.4% |
+| Back 50 / legs 50, 60 min | deadlift and RDL together | 36.8% |
+| Back 50 / legs 50, 60 min | isolation before a compound | 100.0% |
+| Chest 40 / back 40 / biceps 20, 15 min, bad | lifts / sets | 3.0 / 3.0 |
+| Chest 40 / back 40 / biceps 20, 15 min, ok | lifts / sets | 4.0 / 8.0 |
+| Chest 40 / back 40 / biceps 20, 15 min, good | lifts / sets | 4.0 / 11.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, bad | lifts / sets | 5.0 / 9.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, ok | lifts / sets | 6.0 / 16.0 |
+| Chest 40 / back 40 / biceps 20, 30 min, good | lifts / sets | 6.0 / 20.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, bad | lifts / sets | 8.0 / 20.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, ok | lifts / sets | 9.0 / 32.0 |
+| Chest 40 / back 40 / biceps 20, 60 min, good | lifts / sets | 9.0 / 37.0 |
+| Chest 50 / back 50, 30 min | exercises shared with the previous generation | 54% |

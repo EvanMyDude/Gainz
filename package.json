@@ -1,0 +1,9 @@
+{
+  "name": "gainz",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "baseline": "node tests/tools/defect-report.mjs"
+  }
+}
