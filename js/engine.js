@@ -276,7 +276,9 @@ function openSlots(plan){
       slots.push({p,k,order,tier:slot.tier,patterns:slot.patterns,ordered:!!slot.ordered});
     }
   });
-  return slots.sort((a,b)=>a.tier-b.tier||b.p.sets-a.p.sets||a.order-b.order||a.k-b.k);
+  // Within a tier every group's first slot is filled before any group's second,
+  // so each lead lift gets first call on the session's heavy-lift allowance.
+  return slots.sort((a,b)=>a.tier-b.tier||a.k-b.k||b.p.sets-a.p.sets||a.order-b.order);
 }
 // Fills every slot in priority order. Hard rules narrow the candidates first,
 // then the slot's patterns, then a weighted draw chooses among what is left. A rule is
@@ -463,34 +465,55 @@ export function generateWorkout(request,ctx){
   return best.workout;
 }
 
+/* ---------- Rebuilding part of a workout ---------- */
+const isMain=section=>section.title==='Main work';
+const mainOf=workout=>(workout.sections.find(isMain)||{items:[]}).items;
+// Regenerates with `removed` taken out and every other lift kept, then puts the
+// new main work back into the old workout so warm-up, cardio and cooldown stay.
+function rebuildWithout(workout,removed,avoid,request,ctx){
+  const before=mainOf(workout);
+  const others=before.filter(item=>!removed.includes(item.id));
+  const next=generateWorkout({...request,keep:others,avoid},ctx);
+  const after=mainOf(next);
+  if(!others.every(old=>after.some(item=>item.id===old.id)))return null;
+  const noteStillApplies=workout.formNote&&after.some(item=>item.name===workout.formNote.name);
+  return {...next,date:workout.date,
+    sections:workout.sections.map(section=>isMain(section)?next.sections.find(isMain):section),
+    formNote:noteStillApplies?workout.formNote:next.formNote,
+    swapped:avoid};
+}
 // Replaces one exercise by refilling its slot: every other lift is kept and
 // the old one is ruled out, so the slot's own patterns and the session rules
-// choose the replacement. Warm-up, cardio and cooldown are left as they were.
-// Returns null when nothing else can take the slot.
+// choose the replacement. Returns null when nothing else can take the slot.
 export function swapExercise(workout,id,request,ctx){
-  const isMain=section=>section.title==='Main work';
-  const before=(workout.sections.find(isMain)||{items:[]}).items;
+  const before=mainOf(workout);
   if(!before.some(item=>item.id===id))return null;
-  const others=before.filter(item=>item.id!==id);
+  // A swap must leave the lineup the same size with exactly one new lift.
   const attempt=avoid=>{
-    const next=generateWorkout({...request,keep:others,avoid},ctx);
-    const after=next.sections.find(isMain).items;
-    const arrived=after.filter(item=>!before.some(old=>old.id===item.id));
-    const intact=after.length===before.length&&others.every(old=>after.some(item=>item.id===old.id));
-    return intact&&arrived.length===1?next:null;
+    const next=rebuildWithout(workout,[id],avoid,request,ctx);
+    return next&&mainOf(next).length===before.length?next:null;
   };
   // Lifts already swapped out of this workout are passed over, so repeated
   // swaps walk through the alternatives. Once those run out, start over.
   const seen=workout.swapped||[];
-  let avoid=[...seen,id],next=attempt(avoid);
-  if(!next&&seen.length){avoid=[id];next=attempt(avoid);}
-  if(!next)return null;
-  const main=next.sections.find(isMain);
-  const noteStillApplies=workout.formNote&&main.items.some(item=>item.name===workout.formNote.name);
-  return {...next,date:workout.date,
-    sections:workout.sections.map(section=>isMain(section)?main:section),
-    formNote:noteStillApplies?workout.formNote:next.formNote,
-    swapped:avoid};
+  return attempt([...seen,id])||(seen.length?attempt([id]):null);
+}
+// Replaces several exercises at once, each by refilling its own slot. Unlike a
+// swap, the lifts always go: where nothing else fits, the workout gets shorter
+// and says so in its notes. Returns null if none of the ids is in the workout
+// or no lift would be left.
+export function replaceExercises(workout,ids,request,ctx){
+  const before=mainOf(workout);
+  const removed=ids.filter(id=>before.some(item=>item.id===id));
+  if(!removed.length)return null;
+  const seen=workout.swapped||[];
+  let next=rebuildWithout(workout,removed,[...seen,...removed],request,ctx);
+  // If passing over earlier swaps left a slot empty, allow them back.
+  if(seen.length&&(!next||mainOf(next).length<before.length)){
+    const retry=rebuildWithout(workout,removed,removed,request,ctx);
+    if(retry&&(!next||mainOf(retry).length>mainOf(next).length))next=retry;
+  }
+  return next&&mainOf(next).length?next:null;
 }
 
 /* ---------- Apple Notes text ---------- */

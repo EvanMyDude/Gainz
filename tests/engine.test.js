@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DURATIONS, MINUTES_PER_SET, generateWorkout, notesText, planBudget, swapExercise } from '../js/engine.js';
+import { DURATIONS, MINUTES_PER_SET, generateWorkout, notesText, planBudget, replaceExercises, swapExercise } from '../js/engine.js';
 import { MAX_SETS, MIN_SETS, lintWorkout } from '../js/rules.js';
 import { EQUIPMENT, GROUPS, LIB } from '../js/exercises.js';
 import { NOTES_DATE, expandGroups, mainItems } from './helpers.js';
@@ -469,4 +469,74 @@ test('a slot with no alternative cannot be swapped', () => {
   const workout = generateWorkout(request, { ...CTX, lib: [bench] });
   assert.equal(swapExercise(workout, 'bench', { ...request, seed: 2 }, { ...CTX, lib: [bench] }), null);
   assert.equal(swapExercise(workout, 'notinworkout', request, CTX), null);
+});
+
+/* ---------- Replacing hidden exercises ---------- */
+test('replacing several exercises removes exactly those and keeps everything else', () => {
+  let replaced = 0;
+  for (const c of FEASIBLE) {
+    const request = requestFor(c, { seed: 6, opts: ALL_OPTS });
+    const workout = generateWorkout(request, CTX);
+    const items = mainItems(workout);
+    if (items.length < 3) continue;
+    items.forEach(item => { if (item.w !== null) item.w = 555; });
+    items[0].locked = true;
+    // Hide the second lift and the last one, as a person tapping Hide on two cards would.
+    const gone = [items[1].id, items[items.length - 1].id];
+    const ctx = { ...CTX, hidden: gone };
+    const next = replaceExercises(workout, gone, { ...request, seed: 77 }, ctx);
+    const where = `${label(c, 6)} replacing ${gone}`;
+    assert.ok(next, where);
+    const after = mainItems(next);
+    gone.forEach(id => assert.ok(!after.some(item => item.id === id), `${where}: ${id} is still there`));
+    for (const old of items.filter(item => !gone.includes(item.id))) {
+      const kept = after.find(item => item.id === old.id);
+      assert.ok(kept, `${where}: ${old.id} was dropped`);
+      assert.equal(kept.sets, old.sets, `${where}: ${old.id} sets`);
+      assert.equal(kept.w, old.w, `${where}: ${old.id} weight`);
+      assert.equal(!!kept.locked, !!old.locked, `${where}: ${old.id} lock`);
+    }
+    assert.deepEqual(otherSections(next), otherSections(workout), where);
+    assert.equal(next.date, workout.date);
+    // Whatever the linter finds is stated; a shortfall can only come from running out of lifts.
+    const problems = lintWorkout(next, { hidden: gone }).map(problem => problem.rule);
+    assert.deepEqual([...new Set(next.notes.map(note => note.rule))].sort(), [...new Set(problems)].sort(), where);
+    if (after.length === items.length) { replaced++; assert.equal(next.sets, workout.sets, where); }
+  }
+  assert.ok(replaced > FEASIBLE.length * 0.7, `${replaced} of ${FEASIBLE.length} replaced both lifts like for like`);
+});
+
+test('replacements serve the same purpose as the lifts they replace', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const request = { dur: '60', feel: 'ok', groups: expandGroups({ chest: 50, back: 50 }, groupIds), opts: NO_OPTS, seed };
+    const workout = generateWorkout(request, CTX);
+    const leads = mainItems(workout).filter(item => item.slot === 0);
+    const gone = leads.map(item => item.id);
+    const next = replaceExercises(workout, gone, { ...request, seed: seed + 500 }, { ...CTX, hidden: gone });
+    const chest = mainItems(next).find(item => item.group === 'chest' && item.slot === 0);
+    const back = mainItems(next).find(item => item.group === 'back' && item.slot === 0);
+    assert.ok(['horizontal_press', 'incline_press'].includes(chest.pairMeta.pattern), `seed ${seed}: ${chest.id}`);
+    assert.ok(['vertical_pull', 'horizontal_pull'].includes(back.pairMeta.pattern), `seed ${seed}: ${back.id}`);
+    assert.deepEqual(next.notes, [], `seed ${seed}`);
+  }
+});
+
+test('when nothing else fits, the hidden lift is still removed and the shortfall is stated', () => {
+  const request = { dur: '30', feel: 'ok', groups: expandGroups({ calves: 100 }, groupIds), opts: NO_OPTS, seed: 1 };
+  const workout = generateWorkout(request, CTX);
+  const items = mainItems(workout);
+  assert.equal(items.length, 4);                      // every calf exercise is already in the workout
+  const next = replaceExercises(workout, [items[0].id], { ...request, seed: 2 }, { ...CTX, hidden: [items[0].id] });
+  assert.equal(mainItems(next).length, 3);
+  assert.ok(!mainItems(next).some(item => item.id === items[0].id));
+  assert.ok(next.notes.length > 0);
+});
+
+test('replacing returns nothing when no lift would be left or none of the ids is in the workout', () => {
+  const bench = LIB.find(e => e.id === 'bench');
+  const request = { dur: '15', feel: 'ok', groups: expandGroups({ chest: 100 }, groupIds), opts: NO_OPTS, seed: 1 };
+  const workout = generateWorkout(request, { ...CTX, lib: [bench] });
+  assert.equal(replaceExercises(workout, ['bench'], request, { ...CTX, lib: [bench], hidden: ['bench'] }), null);
+  assert.equal(replaceExercises(workout, ['squat'], request, CTX), null);
+  assert.equal(replaceExercises(workout, [], request, CTX), null);
 });
