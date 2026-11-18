@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#F9F8F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#202020" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%232783DE'/><stop offset='1' stop-color='%23BF8EDA'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><text x='32' y='46' font-size='36' text-anchor='middle'>🤠</text></svg>">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>GAiNz — Workout Generator</title>
 <style>
 :root{
@@ -13,6 +17,9 @@
   --triceps:#477FC3; --biceps:#4F9F75; --calves:#C97A42; --core:#9568AF;
   --shadow:0 1px 2px rgba(0,0,0,.05), 0 4px 12px rgba(0,0,0,.04);
   --radius:12px;
+  --onAccent:#FFFFFF;        /* text on the blue, green and orange fills */
+  --ease:cubic-bezier(.2,.7,.2,1);
+  color-scheme:light dark;   /* native controls follow the palette */
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -21,6 +28,7 @@
     --orange:#DE9255; --orangeSoft:rgba(222,146,85,.12); --red:#E97366; --redSoft:rgba(233,115,102,.12);
     --triceps:#75A6DF; --biceps:#72BC8F; --calves:#E5A36F; --core:#C39ADB;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 12px rgba(0,0,0,.25);
+    --onAccent:#10151B;      /* the dark palette's accents are light, so their text is dark */
   }
 }
 /* Print forces the light palette. Specificity (0,2,0) beats both :root blocks above,
@@ -31,21 +39,26 @@
   --border:#D8D6D3; --blue:#1F6FC4; --blueSoft:#E5F2FC; --green:#3D8C62; --greenSoft:#E8F1EC;
   --orange:#B96C2E; --orangeSoft:#FBEBDE; --red:#C94E42; --redSoft:#FCE9E7;
   --triceps:#477FC3; --biceps:#4F9F75; --calves:#C97A42; --core:#9568AF;
-  --shadow:none;
+  --shadow:none; --onAccent:#FFFFFF; color-scheme:light;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
   background:var(--soft); color:var(--text); font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;}
-.wrap{max-width:960px; margin:0 auto; padding:24px 20px 80px;}
+.wrap{max-width:960px; margin:0 auto;
+  padding:24px max(20px,env(safe-area-inset-right,0px)) calc(80px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));}
 header.top{display:flex; align-items:center; gap:14px; margin-bottom:20px;}
 .badge{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--shoulders));
   display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;box-shadow:var(--shadow);}
 header.top h1{font-size:24px;line-height:1.2;font-weight:700;letter-spacing:-.02em;}
 header.top p{color:var(--text2);font-size:14px;}
-.tabs{display:flex;gap:4px;background:var(--surface2);padding:4px;border-radius:10px;margin-bottom:24px;width:fit-content;}
-.tab{border:none;background:none;font:inherit;font-weight:600;font-size:14px;color:var(--text2);
-  padding:8px 18px;border-radius:7px;cursor:pointer;min-height:40px;}
+.tabs{position:relative;display:flex;gap:4px;background:var(--surface2);padding:4px;border-radius:10px;margin-bottom:24px;width:fit-content;}
+.tab{position:relative;z-index:1;border:none;background:none;font:inherit;font-weight:600;font-size:14px;color:var(--text2);
+  padding:8px 18px;border-radius:7px;cursor:pointer;min-height:40px;transition:color .18s ease;}
 .tab.active{background:var(--canvas);color:var(--text);box-shadow:var(--shadow);}
+/* Once the script has measured the tabs, one pill slides between them instead. */
+.tabs.has-pill .tab.active{background:none;box-shadow:none;}
+.tabs.has-pill::before{content:'';position:absolute;top:4px;bottom:4px;left:0;width:var(--pill-w);transform:translateX(var(--pill-x));
+  background:var(--canvas);border-radius:7px;box-shadow:var(--shadow);transition:transform .24s var(--ease),width .24s var(--ease);}
 .card{background:var(--canvas);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);font-weight:700;margin-bottom:14px;}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
@@ -62,6 +75,7 @@ header.top p{color:var(--text2);font-size:14px;}
 .seg.feel button.on[data-v="bad"]{border-color:var(--red);background:var(--redSoft);color:var(--red);}
 .seg.feel button.on[data-v="ok"]{border-color:var(--orange);background:var(--orangeSoft);color:var(--orange);}
 .seg.feel button.on[data-v="good"]{border-color:var(--green);background:var(--greenSoft);color:var(--green);}
+.seg.feel button.on .sub{color:inherit;}
 .groups{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:560px){.groups{grid-template-columns:1fr;}}
 .group-section+.group-section{border-top:1px solid var(--border);margin-top:18px;padding-top:18px;}
@@ -92,14 +106,16 @@ header.top p{color:var(--text2);font-size:14px;}
 .supp label.disabled{opacity:.55;cursor:not-allowed;}
 .supp label.disabled .switch input,.supp label.disabled .slider{cursor:not-allowed;}
 .supp-note{width:100%;margin-top:-4px;}
-.btn{width:100%;min-height:52px;border:none;border-radius:12px;background:var(--blue);color:#fff;
+.btn{width:100%;min-height:52px;border:none;border-radius:12px;background:var(--blue);color:var(--onAccent);
   font:inherit;font-weight:700;font-size:16px;cursor:pointer;box-shadow:var(--shadow);transition:.12s;}
 .btn:hover{filter:brightness(1.05);}
 .btn.secondary{background:var(--surface2);color:var(--text);}
 .btn.ghost{background:none;border:1px solid var(--border);color:var(--text);}
 .btn-row{display:flex;gap:10px;margin-top:16px;}
 .btn.replace{background:var(--orange);min-height:46px;font-size:14px;margin-top:16px;}
-.btn-row .btn{min-height:46px;font-size:14px;}
+.btn-row .btn{flex:1;width:auto;min-height:46px;font-size:14px;line-height:1.2;padding:6px 10px;}
+.btn-row #copyBtn{flex:1.35;}
+@media(max-width:400px){.btn-row{gap:8px;}.btn-row .btn{font-size:13px;padding:6px;}}
 .hint{color:var(--text2);font-size:13px;margin-top:8px;}
 .hint.over{color:var(--red);font-weight:600;}
 .alloc-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;
@@ -119,7 +135,7 @@ header.top p{color:var(--text2);font-size:14px;}
 .formnote.trim b{color:var(--orange);}
 .splitnote{background:var(--canvas);border:1px solid var(--border);border-radius:10px;padding:13px 15px;
   margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;}
-.splitnote strong{margin-right:auto;}
+.splitnote strong{margin-right:auto;font-variant-numeric:tabular-nums;}
 .splitchip{display:inline-flex;align-items:center;gap:6px;color:var(--text2);white-space:nowrap;}
 .superset-summary{background:var(--greenSoft);border:1px solid var(--green);color:var(--green);border-radius:10px;
   padding:10px 13px;margin-bottom:12px;font-size:13px;font-weight:700;}
@@ -130,12 +146,13 @@ header.top p{color:var(--text2);font-size:14px;}
 .superset-block .ex{background:var(--canvas);margin-bottom:8px;}
 .superset-block .ex:last-child{margin-bottom:0;}
 .superset-code{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;margin-right:7px;
-  border-radius:6px;background:var(--blue);color:#fff;font-size:11px;font-weight:800;vertical-align:1px;}
+  border-radius:6px;background:var(--blue);color:var(--onAccent);font-size:11px;font-weight:800;vertical-align:1px;}
 @media(max-width:560px){.superset-head{display:block}.superset-head span{display:block}.superset-head span:last-child{margin-top:2px;text-align:left;}}
 .wsec{margin-bottom:18px;}
 .wsec-title{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px;text-transform:uppercase;
   letter-spacing:.04em;color:var(--text2);margin-bottom:10px;}
-.ex{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--soft);}
+.ex{border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--soft);transition:border-color .2s ease;}
+.ex>*{transition:opacity .2s ease;}
 .ex-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}
 .ex-name{font-weight:700;font-size:15px;}
 .ex-scheme{color:var(--text2);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -156,7 +173,9 @@ header.top p{color:var(--text2);font-size:14px;}
 .hidden-row:first-of-type{margin-top:10px;}
 .sets{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
 .setpill{display:flex;align-items:center;gap:4px;background:var(--canvas);border:1px solid var(--border);
-  border-radius:8px;padding:4px 6px;}
+  border-radius:8px;padding:4px 6px;transition:border-color .12s ease;}
+.setpill:focus-within{border-color:var(--blue);}
+.setpill input:focus{outline:none;}
 .setpill input{width:46px;border:none;background:none;color:var(--text);font:inherit;font-weight:600;
   font-size:14px;text-align:center;font-variant-numeric:tabular-nums;-moz-appearance:textfield;}
 .setpill input::-webkit-outer-spin-button,.setpill input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
@@ -177,10 +196,13 @@ select{font:inherit;font-size:14px;font-weight:600;color:var(--text);background:
   border-radius:8px;padding:8px 12px;min-height:40px;cursor:pointer;width:100%;}
 canvas{width:100%;max-width:100%;display:block;}
 .session{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--soft);overflow:hidden;}
-.session summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.session summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;align-items:center;gap:10px;}
+.session summary::after{content:'';flex-shrink:0;width:7px;height:7px;margin:0 2px 3px 2px;border-right:2px solid var(--text2);
+  border-bottom:2px solid var(--text2);transform:rotate(45deg);transition:transform .18s ease;}
+.session[open] summary::after{transform:rotate(-135deg);margin-bottom:-3px;}
 .session summary::-webkit-details-marker{display:none;}
 .session .s-date{font-weight:700;font-size:14px;}
-.session .s-meta{color:var(--text2);font-size:13px;}
+.session .s-meta{color:var(--text2);font-size:13px;margin-left:auto;text-align:right;}
 .session .s-body{padding:0 16px 14px;font-size:13.5px;color:var(--text2);}
 .session .s-body div{padding:3px 0;}
 .performed-sets{margin:4px 0 8px 12px;padding-left:10px;border-left:2px solid var(--border);}
@@ -207,13 +229,59 @@ canvas{width:100%;max-width:100%;display:block;}
   .card.flow{break-inside:auto;}
   .card{margin-bottom:12px;}
   .session summary{cursor:default;}
+  .session summary::after{display:none;}
   .stats{margin-bottom:12px;}
 }
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);
-  color:var(--canvas);padding:12px 20px;border-radius:10px;font-weight:600;font-size:14px;opacity:0;
-  transition:.25s;pointer-events:none;z-index:50;box-shadow:var(--shadow);}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+/* Sits above the docked Generate button and clear of the phone's home indicator. */
+.toast{position:fixed;bottom:calc(88px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%) translateY(12px) scale(.97);
+  background:var(--text);color:var(--canvas);padding:11px 18px;border-radius:14px;font-weight:600;font-size:14px;line-height:1.35;
+  width:max-content;max-width:calc(100vw - 40px);text-align:center;opacity:0;
+  transition:opacity .2s ease,transform .28s var(--ease);pointer-events:none;z-index:50;box-shadow:var(--shadow);}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}
 .mb0{margin-bottom:0;}
+
+/* ---------- Touch and focus ---------- */
+button,label,summary,select,input{-webkit-tap-highlight-color:transparent;}
+button,label,summary,select,input[type=range],input[type=checkbox]{touch-action:manipulation;}
+button,.supp label,summary,.grp-head{-webkit-user-select:none;user-select:none;}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+.switch input:focus-visible+.slider{outline:2px solid var(--blue);outline-offset:2px;}
+.btn:active,.seg button:active,.ex-btn:active:not(:disabled),.unhide-btn:active,.balance-btn:active{filter:brightness(.94);}
+.supp label:active:not(.disabled){background:var(--surface2);}
+#output{scroll-margin-top:12px;}
+
+/* Generate stays within reach: it rides the bottom of the screen until the
+   page is scrolled to where it normally sits. The workout renders below it. */
+.gen-dock{position:sticky;bottom:0;z-index:20;margin:0 -6px;padding:14px 6px calc(12px + env(safe-area-inset-bottom,0px));
+  background:linear-gradient(to top,var(--soft) 62%,transparent);}
+#genBtn{position:relative;overflow:hidden;}
+#genBtn::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.38) 50%,transparent 62%);transform:translateX(-110%);}
+
+/* ---------- Motion ---------- */
+/* Everything that moves lives here, so a reduced-motion setting leaves the app still. */
+@media (prefers-reduced-motion:no-preference){
+  .btn,.seg button,.tab,.ex-btn,.unhide-btn,.balance-btn{transition:transform .12s ease,filter .12s ease,background-color .12s ease,border-color .12s ease,color .12s ease;}
+  .btn:active,.seg button:active,.tab:active,.ex-btn:active:not(:disabled),.unhide-btn:active,.balance-btn:active{transform:scale(.97);}
+  /* Generate: one sheen across the button, then the workout arrives as a short cascade. */
+  #genBtn.sheen::after{animation:sheen .65s ease-out;}
+  .rise{animation:rise .34s var(--ease) backwards;animation-delay:calc(var(--i,0)*28ms);}
+  /* A swapped-in card announces itself, then settles. */
+  .ex.arrive{animation:arrive 1s var(--ease) backwards;}
+  .ex-lock.pop{animation:pop .28s var(--ease);}
+  .btn.replace.pulse{animation:pulse 1s ease-out 2;}
+  .grp.reveal .grp-body{animation:reveal .22s var(--ease);}
+  .tab-in{animation:fade .2s ease;}
+}
+@keyframes sheen{0%{opacity:1;transform:translateX(-110%)}100%{opacity:1;transform:translateX(110%)}}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes arrive{0%{opacity:0;transform:translateY(6px);border-color:var(--blue);box-shadow:0 0 0 3px var(--blueSoft)}
+  30%{opacity:1;transform:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blueSoft)}
+  100%{box-shadow:0 0 0 0 transparent}}
+@keyframes pop{0%{transform:scale(.9)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--orange) 55%,transparent)}100%{box-shadow:0 0 0 12px transparent}}
+@keyframes reveal{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
@@ -277,7 +345,7 @@ canvas{width:100%;max-width:100%;display:block;}
       </div>
     </div>
 
-    <button class="btn" id="genBtn">Generate workout</button>
+    <div class="gen-dock"><button class="btn" id="genBtn" type="button">Generate workout</button></div>
 
     <div id="output" class="hide" style="margin-top:24px;"></div>
 
@@ -523,6 +591,21 @@ function savePrefs(){
 let ST=hydrateST();
 let currentWorkout=null;
 let currentRequest=null;   // what produced currentWorkout, reused when swapping one exercise
+const motionOK=()=>!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Counts a number up (or down) to its new value. With reduced motion it is simply set.
+function tickNumber(el,from,to,format=String,ms=450){
+  if(from===to||!motionOK()){el.textContent=format(to);return;}
+  const start=performance.now();
+  el.textContent=format(from);
+  const step=now=>{
+    const t=Math.min(1,(now-start)/ms),eased=1-Math.pow(1-t,3);
+    el.textContent=format(Math.round(from+(to-from)*eased));
+    if(t<1&&el.isConnected)requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+let shownTotals={sets:0,minutes:0};   // what the header last displayed, so it only ticks on a change
+let replaceOffered=false;             // whether the Replace hidden button is currently on offer
 const mainWork=workout=>workout.sections.find(section=>section.title==='Main work').items;
 const newSeed=()=>Math.floor(Math.random()*4294967296);
 
@@ -607,6 +690,8 @@ function generate(){
   }
   currentWorkout=workout;
   currentRequest=request;
+  const genBtn=document.getElementById('genBtn');
+  genBtn.classList.remove('sheen');void genBtn.offsetWidth;genBtn.classList.add('sheen');
   renderOutput();
   if(request.opts.superset&&ST.feel!=='bad'){
     const pairs=currentWorkout.supersets.length;
@@ -625,7 +710,7 @@ function swapOne(id){
   if(!next){toast(`Nothing else fits where ${exerciseName(id)} is`);return;}
   const arrived=mainWork(next).find(it=>!mainWork(currentWorkout).some(old=>old.id===it.id));
   currentWorkout=next;
-  renderOutput({scroll:false});
+  renderOutput({scroll:false,arrived:[arrived.id]});
   toast(`Swapped ${exerciseName(id)} for ${arrived.name}`);
 }
 function toggleLock(id){
@@ -633,6 +718,10 @@ function toggleLock(id){
   if(!item)return;
   item.locked=!item.locked;
   syncCards();
+  if(item.locked){
+    const button=document.querySelector(`#output .ex[data-ex="${id}"] .ex-lock`);
+    if(button)button.classList.add('pop');
+  }
   toast(item.locked?`Locked ${item.name}: Regenerate will keep it`:`Unlocked ${item.name}`);
 }
 
@@ -652,7 +741,7 @@ function exerciseHtml(it,sectionIndex,itemIndex,code=''){
     if(it.bw){
       html+=`<div class="setpill"><span class="u">set ${s+1}</span></div>`;
     }else{
-      html+=`<div class="setpill"><input type="number" aria-label="${it.name} set ${s+1} weight" data-si="${sectionIndex}" data-ii="${itemIndex}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
+      html+=`<div class="setpill"><input type="number" inputmode="decimal" enterkeyhint="done" aria-label="${it.name} set ${s+1} weight" data-si="${sectionIndex}" data-ii="${itemIndex}" data-s="${s}" value="${it.w}"><span class="u">${unit}</span></div>`;
     }
   }
   return html+`</div><div class="ex-actions">${cardActionsHtml(it,hidden)}</div></div>`;
@@ -708,6 +797,9 @@ function syncReplaceButton(){
   const count=hiddenInWorkout().length;
   button.classList.toggle('hide',!count);
   button.textContent=`\u21BB Replace ${count} hidden exercise${count===1?'':'s'}`;
+  if(!count)button.classList.remove('pulse');
+  else if(!replaceOffered)button.classList.add('pulse');
+  replaceOffered=!!count;
 }
 // Rebuild only the hidden lifts; everything else in the workout stays as it is.
 function replaceHidden(){
@@ -718,7 +810,7 @@ function replaceHidden(){
   if(!next){toast('Nothing else is available to replace them');return;}
   const arrived=mainWork(next).filter(it=>!mainWork(currentWorkout).some(old=>old.id===it.id));
   currentWorkout=next;
-  renderOutput({scroll:false});
+  renderOutput({scroll:false,arrived:arrived.map(it=>it.id)});
   if(arrived.length===gone.length)toast(arrived.length===1?`Replaced ${gone[0].name} with ${arrived[0].name}`:`Replaced ${gone.length} hidden exercises`);
   else toast(`Removed ${gone.length} hidden, added ${arrived.length}: nothing else fits the rest`);
 }
@@ -732,6 +824,13 @@ function syncHiddenUi(){
     `<div class="hidden-row"><span>${escapeHtml(exerciseName(id))}</span>`+
     `<button type="button" class="unhide-btn" data-unhide="${escapeHtml(id)}">Show again</button></div>`).join('');
 }
+// Weight fields: select on focus so a new number replaces the old, and Enter closes the keypad.
+document.getElementById('output').addEventListener('focusin',event=>{
+  if(event.target.matches('.setpill input'))event.target.select();
+});
+document.getElementById('output').addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&event.target.matches('.setpill input'))event.target.blur();
+});
 // One delegated listener covers the workout cards and the hidden list.
 document.getElementById('tab-gen').addEventListener('click',event=>{
   const lock=event.target.closest('[data-lock]');
@@ -744,13 +843,13 @@ document.getElementById('tab-gen').addEventListener('click',event=>{
   if(unhide)setHidden(unhide.dataset.unhide,false);
 });
 
-function renderOutput({scroll=true}={}){
+function renderOutput({scroll=true,arrived=null}={}){
   const out=document.getElementById('output');
   out.classList.remove('hide');
   const w=currentWorkout;
   let html='';
   if(w.split){
-    html+=`<div class="splitnote"><strong>${w.sets} sets \u00b7 about ${w.minutes} min of lifting</strong>`+
+    html+=`<div class="splitnote"><strong><span data-tick="sets">${w.sets}</span> sets \u00b7 about <span data-tick="minutes">${w.minutes}</span> min of lifting</strong>`+
       w.split.map(s=>`<span class="splitchip"><span class="dot" style="background:${GC[s.id]}"></span>${s.name} ${s.pct}% \u2192 ${s.count} lift${s.count===1?'':'s'}</span>`).join('')+`</div>`;
   }
   // Anything the request made impossible is stated rather than hidden.
@@ -785,7 +884,21 @@ function renderOutput({scroll=true}={}){
     `<button class="btn" id="logBtn" style="background:var(--green);">\u2713 Log as done</button></div>`+
     `<button class="btn ghost" id="regenBtn" style="margin-top:10px;min-height:44px;font-size:14px;">\u21BB Regenerate</button>`;
   out.innerHTML=html;
-  if(scroll)out.scrollIntoView({behavior:'smooth',block:'start'});
+  out.querySelectorAll('[data-tick]').forEach(el=>{
+    const key=el.dataset.tick;
+    tickNumber(el,shownTotals[key],w[key]);
+    shownTotals[key]=w[key];
+  });
+  if(arrived){
+    // A partial rebuild: only the new cards announce themselves.
+    arrived.forEach(id=>{const card=out.querySelector(`.ex[data-ex="${id}"]`);if(card)card.classList.add('arrive');});
+  }else{
+    // A fresh workout arrives as a short cascade, capped so a long one does not drag.
+    let index=0;
+    out.querySelectorAll('.splitnote,.superset-summary,.formnote,.wsec-title,.wsec>.ex,.wsec>.superset-block,.btn-row,#regenBtn')
+      .forEach(el=>{el.classList.add('rise');el.style.setProperty('--i',Math.min(index++,14));});
+  }
+  if(scroll)out.scrollIntoView({behavior:motionOK()?'smooth':'auto',block:'start'});
   // wire weight edits into currentWorkout
   out.querySelectorAll('input[type=number]').forEach(inp=>{
     inp.addEventListener('change',()=>{
@@ -801,11 +914,21 @@ function renderOutput({scroll=true}={}){
 }
 
 /* ---------- Apple Notes text ---------- */
+let copiedT;
+function showCopied(){
+  toast('Copied \u2014 paste into Apple Notes');
+  const button=document.getElementById('copyBtn');
+  if(!button)return;
+  if(!button.dataset.label)button.dataset.label=button.textContent;
+  button.textContent='\u2713 Copied';
+  clearTimeout(copiedT);
+  copiedT=setTimeout(()=>{if(button.isConnected)button.textContent=button.dataset.label;},1600);
+}
 function copyNotes(){
   const t=notesText(currentWorkout);
-  navigator.clipboard.writeText(t).then(()=>toast('Copied \u2014 paste into Apple Notes')).catch(()=>{
+  navigator.clipboard.writeText(t).then(showCopied).catch(()=>{
     const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();
-    try{document.execCommand('copy');toast('Copied \u2014 paste into Apple Notes');}catch(e){toast('Copy failed');}
+    try{document.execCommand('copy');showCopied();}catch(e){toast('Copy failed');}
     ta.remove();
   });
 }
@@ -878,7 +1001,7 @@ function sessionGroupCounts(session){
   });
   return counts;
 }
-function renderHistory(){
+function renderHistory({animate=false}={}){
   const s=DB.sessions;
   document.getElementById('pdfBtn').disabled=s.length===0;
   // stats
@@ -887,8 +1010,9 @@ function renderHistory(){
   const thisWeek=s.filter(x=>new Date(x.date)>=weekAgo).length;
   let vol=0;s.forEach(x=>(Array.isArray(x.items)?x.items:[]).forEach(item=>{vol+=itemEstimatedVolume(item);}));
   const streak=calcStreak(s);
-  const cards=[['Workouts',s.length],['This week',thisWeek],['Streak',streak+'d'],['Est. volume',fmtK(vol)]];
-  document.getElementById('statCards').innerHTML=cards.map(c=>`<div class="stat"><div class="n">${c[1]}</div><div class="l">${c[0]}</div></div>`).join('');
+  const cards=[['Workouts',s.length,String],['This week',thisWeek,String],['Streak',streak,n=>n+'d'],['Est. volume',vol,fmtK]];
+  document.getElementById('statCards').innerHTML=cards.map(c=>`<div class="stat"><div class="n">${c[2](c[1])}</div><div class="l">${c[0]}</div></div>`).join('');
+  if(animate)document.querySelectorAll('#statCards .n').forEach((el,index)=>tickNumber(el,0,cards[index][1],cards[index][2],520));
   // distribution last 30d
   const monthAgo=new Date(now-30*864e5);
   const dist=Object.fromEntries(GROUPS.map(g=>[g.id,0]));
@@ -898,7 +1022,7 @@ function renderHistory(){
   });
   const dtot=Object.values(dist).reduce((a,b)=>a+b,0);
   const dr=document.getElementById('distRow'),dl=document.getElementById('distLeg');
-  if(dtot===0){dr.innerHTML='';dl.innerHTML='<div style="color:var(--text2)">No sessions logged yet.</div>';}
+  if(dtot===0){dr.innerHTML='';dl.innerHTML=`<div style="color:var(--text2)">${s.length?'No sessions in the last 30 days.':'No sessions logged yet.'}</div>`;}
   else{
     dr.innerHTML=GROUPS.map(g=>{const p=(dist[g.id]/dtot*100);return p>0?`<span style="width:${p}%;background:${GC[g.id]}"></span>`:'';}).join('');
     dl.innerHTML=GROUPS.map(g=>{const p=Math.round(dist[g.id]/dtot*100);return `<div><span class="dot" style="background:${GC[g.id]}"></span>${g.name} ${p}%</div>`;}).join('');
@@ -1026,17 +1150,18 @@ function drawTrend(id){
 }
 
 /* ---------- Build controls ---------- */
+let revealGroup=null;   // the group just switched on, so only its slider eases in
 function buildGroups(){
   const c=document.getElementById('groups');
   const cards=groups=>groups.map(g=>{
     const s=ST.groups[g.id];
-    return `<div class="grp ${s.on?'on':''}" data-g="${g.id}">
+    return `<div class="grp ${s.on?'on':''}${revealGroup===g.id?' reveal':''}" data-g="${g.id}">
       <div class="grp-head">
         <div class="grp-name"><span class="dot" style="background:${g.color}"></span>${g.name}</div>
         <span class="switch"><input type="checkbox" class="gOn" aria-label="${g.name} muscle group" ${s.on?'checked':''}><span class="slider"></span></span>
       </div>
       <div class="grp-body">
-        <div class="pctrow"><input type="range" class="gPct" aria-label="${g.name} workout percentage" min="5" max="100" step="5" value="${s.pct}"><span class="pctval" data-pv="${g.id}">${s.pct}%</span></div>
+        <div class="pctrow"><input type="range" class="gPct" style="accent-color:${g.color}" aria-label="${g.name} workout percentage" min="5" max="100" step="5" value="${s.pct}"><span class="pctval" data-pv="${g.id}">${s.pct}%</span></div>
       </div>
     </div>`;
   }).join('');
@@ -1050,6 +1175,7 @@ function buildGroups(){
       <div class="group-section-note">Train alone or mix into any split</div></div>
       <div class="groups">${cards(TARGET_GROUPS)}</div>
     </section>`;
+  revealGroup=null;
   c.querySelectorAll('.grp').forEach(el=>{
     const gid=el.dataset.g;
     el.querySelector('.gOn').addEventListener('change',e=>{
@@ -1062,6 +1188,7 @@ function buildGroups(){
         return;
       }
       ST.groups[gid].on=checked;
+      if(checked)revealGroup=gid;
       el.classList.toggle('on',checked);
       if(checked){
         const otherActive=GROUPS.filter(g=>g.id!==gid && ST.groups[g.id].on);
@@ -1220,12 +1347,24 @@ function syncSupersetAvailability(announce=false){
 }
 
 /* ---------- Tabs & segments ---------- */
+// Positions the pill behind the active tab. Until this runs, the active tab styles itself.
+function movePill(){
+  const tabs=document.querySelector('.tabs'),active=tabs.querySelector('.tab.active');
+  if(!active.offsetWidth)return;   // not laid out, as when printing
+  tabs.style.setProperty('--pill-x',active.offsetLeft+'px');
+  tabs.style.setProperty('--pill-w',active.offsetWidth+'px');
+  tabs.classList.add('has-pill');
+}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  if(t.classList.contains('active'))return;
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
   const g=t.dataset.tab==='gen';
   document.getElementById('tab-gen').classList.toggle('hide',!g);
   document.getElementById('tab-hist').classList.toggle('hide',g);
-  if(!g) renderHistory();
+  const shown=document.getElementById(g?'tab-gen':'tab-hist');
+  shown.classList.remove('tab-in');void shown.offsetWidth;shown.classList.add('tab-in');
+  movePill();
+  if(!g) renderHistory({animate:true});
 });
 function wireSeg(id,key){
   const seg=document.getElementById(id);
@@ -1258,6 +1397,8 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 buildGroups();
 syncSupersetAvailability();
 syncHiddenUi();
+movePill();
+window.addEventListener('resize',movePill);
 if(bundledImport.count)setTimeout(()=>toast(`Imported ${bundledImport.count} Apple Notes workouts`),0);
 window.addEventListener('resize',()=>{const sel=document.getElementById('trendSel');if(!document.getElementById('tab-hist').classList.contains('hide'))drawTrend(sel.disabled?null:sel.value);});
 </script>
